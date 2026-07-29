@@ -15,12 +15,13 @@ const TEST_USER_ID = "00000000-0000-4000-8000-000000000029";
 
 function BackgroundHarness({ repository }: { repository: DiaryRepository }) {
   const { assets, preference, setPreference } =
-    useDiaryBackgrounds(repository);
+    useDiaryBackgrounds(repository, async () => "dark");
 
   return (
     <>
       <output aria-label="Background state">
-        {preference.mode}:{assets[0]?.entryDate ?? "empty"}
+        {preference.mode}:{assets[0]?.entryDate ?? "empty"}:
+        {assets[0]?.luminance ?? "unknown"}
       </output>
       <button
         onClick={() => {
@@ -88,7 +89,7 @@ describe("useDiaryBackgrounds", () => {
     render(<BackgroundHarness repository={repository} />);
 
     expect(
-      await screen.findByText("random:2026-07-29"),
+      await screen.findByText("random:2026-07-29:dark"),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Pin first" }));
 

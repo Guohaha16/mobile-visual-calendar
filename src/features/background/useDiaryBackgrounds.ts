@@ -4,17 +4,34 @@ import { useLiveQuery } from "dexie-react-hooks";
 import type { BackgroundPreference } from "../../domain/types";
 import type { DiaryRepository } from "../../data/local/diaryRepository";
 import type { DiaryBackgroundAsset } from "./types";
+import {
+  classifyImageLuminance,
+  type ImageLuminance,
+} from "./luminance";
 
 const randomPreference: BackgroundPreference = { mode: "random" };
 
-export function useDiaryBackgrounds(repository: DiaryRepository) {
+export function useDiaryBackgrounds(
+  repository: DiaryRepository,
+  classifyLuminance: (blob: Blob) => Promise<ImageLuminance> =
+    classifyImageLuminance,
+) {
   const sourceAssets = useLiveQuery(
     async () => {
       const images = await repository.listDiaryImages();
       const assets = await Promise.all(
         images.map(async (image) => {
           const entry = await repository.getEntry(image.entryId);
-          return entry === undefined ? undefined : { entry, image };
+          const blob = image.thumbnailBlob ?? image.localBlob;
+          if (entry === undefined || blob === undefined) {
+            return undefined;
+          }
+
+          return {
+            entry,
+            image,
+            luminance: await classifyLuminance(blob),
+          };
         }),
       );
 
@@ -24,10 +41,11 @@ export function useDiaryBackgrounds(repository: DiaryRepository) {
         ): item is {
           entry: NonNullable<typeof item>["entry"];
           image: NonNullable<typeof item>["image"];
+          luminance: NonNullable<typeof item>["luminance"];
         } => item !== undefined,
       );
     },
-    [repository],
+    [repository, classifyLuminance],
     [],
   );
   const preference =
@@ -40,7 +58,7 @@ export function useDiaryBackgrounds(repository: DiaryRepository) {
   const { assets, objectUrls } = useMemo(() => {
     const urls: string[] = [];
     const mappedAssets = sourceAssets.flatMap<DiaryBackgroundAsset>(
-      ({ entry, image }) => {
+      ({ entry, image, luminance }) => {
         const blob = image.thumbnailBlob ?? image.localBlob;
         if (blob === undefined || typeof URL.createObjectURL !== "function") {
           return [];
@@ -52,6 +70,7 @@ export function useDiaryBackgrounds(repository: DiaryRepository) {
           {
             ...image,
             entryDate: entry.entryDate,
+            luminance,
             url,
           },
         ];
