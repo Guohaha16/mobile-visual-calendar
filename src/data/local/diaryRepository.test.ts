@@ -1,3 +1,5 @@
+import { Blob as NodeBlob } from "node:buffer";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BackgroundPreference } from "../../domain/types";
@@ -8,6 +10,8 @@ import {
 } from "./diaryRepository";
 
 let databaseSequence = 0;
+let databaseBaseName: string;
+let databases: VisualDiaryDb[];
 let database: VisualDiaryDb;
 let repository: DiaryRepository;
 
@@ -30,9 +34,25 @@ const makeClock = (...timestamps: string[]) => {
   };
 };
 
+const createPersistableBlob = (contents: string): Blob => {
+  // Node and DOM Blob stream generics differ, but fake-indexeddb clones Node Blob.
+  return new NodeBlob([contents], { type: "image/jpeg" }) as unknown as Blob;
+};
+
+const createTestDatabase = (
+  userId = "user-1",
+  baseName = databaseBaseName,
+): VisualDiaryDb => {
+  const testDatabase = createVisualDiaryDb(baseName, userId);
+  databases.push(testDatabase);
+  return testDatabase;
+};
+
 beforeEach(() => {
   databaseSequence += 1;
-  database = createVisualDiaryDb(`diary-repository-${databaseSequence}`);
+  databaseBaseName = `diary-repository-${databaseSequence}`;
+  databases = [];
+  database = createTestDatabase();
   repository = createDiaryRepository(database, {
     userId: "user-1",
     clock: makeClock("2026-07-29T10:00:00.000Z"),
@@ -41,7 +61,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await database.delete();
+  await Promise.all(databases.map((testDatabase) => testDatabase.delete()));
 });
 
 describe("visual diary database", () => {
@@ -83,10 +103,135 @@ describe("diary repository", () => {
     await repository.deleteEntry(saved.id, "2026-07-29T12:00:00.000Z");
 
     expect(await repository.listEntriesForDate("2026-07-29")).toEqual([]);
+    expect(await repository.getEntry(saved.id)).toMatchObject({
+      deletedAt: "2026-07-29T12:00:00.000Z",
+      updatedAt: "2026-07-29T12:00:00.000Z",
+      syncState: "waiting",
+    });
     expect(await repository.listOutbox()).toMatchObject([
       { kind: "create-entry" },
-      { kind: "delete-entry" },
+      {
+        kind: "delete-entry",
+        deletedAt: "2026-07-29T12:00:00.000Z",
+      },
     ]);
+  });
+
+  it("allocates strictly increasing outbox timestamps with a fixed clock and reverse IDs", async () => {
+    const ids = ["entry-id", "z-create-operation", "a-delete-operation"];
+    repository = createDiaryRepository(database, {
+      userId: "user-1",
+      clock: () => "2026-07-29T10:00:00.000Z",
+      generateId: () => {
+        const id = ids.shift();
+        if (id === undefined) {
+          throw new Error("Test ID generator exhausted");
+        }
+        return id;
+      },
+    });
+
+    const saved = await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Ordered",
+      media: [],
+    });
+    await repository.deleteEntry(saved.id, "2026-07-29T10:00:00.000Z");
+
+    expect(await repository.listOutbox()).toMatchObject([
+      {
+        id: "z-create-operation",
+        kind: "create-entry",
+        createdAt: "2026-07-29T10:00:00.000Z",
+      },
+      {
+        id: "a-delete-operation",
+        kind: "delete-entry",
+        createdAt: "2026-07-29T10:00:00.001Z",
+      },
+    ]);
+  });
+
+  it("appends another delete operation when an entry is deleted repeatedly", async () => {
+    const saved = await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Delete twice",
+      media: [],
+    });
+
+    await repository.deleteEntry(saved.id, "2026-07-29T12:00:00.000Z");
+    await repository.deleteEntry(saved.id, "2026-07-29T13:00:00.000Z");
+
+    expect((await repository.listOutbox()).map((operation) => operation.kind)).toEqual([
+      "create-entry",
+      "delete-entry",
+      "delete-entry",
+    ]);
+    expect(await repository.getEntry(saved.id)).toMatchObject({
+      deletedAt: "2026-07-29T13:00:00.000Z",
+      updatedAt: "2026-07-29T13:00:00.000Z",
+      syncState: "waiting",
+    });
+  });
+
+  it("isolates entries, outbox, preferences, and cursors by database owner", async () => {
+    const secondDatabase = createTestDatabase("user-2");
+    const secondRepository = createDiaryRepository(secondDatabase, {
+      userId: "user-2",
+      clock: makeClock("2026-07-29T10:00:00.000Z"),
+      generateId: makeIdGenerator(),
+    });
+
+    await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "First user",
+      media: [],
+    });
+    await repository.setBackgroundPreference({ mode: "random" });
+    await repository.setSyncCursor("cursor-user-1");
+
+    expect(database.name).not.toBe(secondDatabase.name);
+    expect(await secondRepository.listEntriesForDate("2026-07-29")).toEqual([]);
+    expect(await secondRepository.listOutbox()).toEqual([]);
+    expect(await secondRepository.getBackgroundPreference()).toBeUndefined();
+    expect(await secondRepository.getSyncCursor()).toBeUndefined();
+
+    await secondRepository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Second user",
+      media: [],
+    });
+    await secondRepository.setBackgroundPreference({
+      mode: "pinned",
+      pinnedAssetId: "second-user-asset",
+    });
+    await secondRepository.setSyncCursor("cursor-user-2");
+
+    expect((await repository.listEntriesForDate("2026-07-29"))[0]?.text).toBe(
+      "First user",
+    );
+    expect((await secondRepository.listEntriesForDate("2026-07-29"))[0]?.text).toBe(
+      "Second user",
+    );
+    expect(await repository.getBackgroundPreference()).toEqual({ mode: "random" });
+    expect(await secondRepository.getBackgroundPreference()).toEqual({
+      mode: "pinned",
+      pinnedAssetId: "second-user-asset",
+    });
+    expect(await repository.getSyncCursor()).toBe("cursor-user-1");
+    expect(await secondRepository.getSyncCursor()).toBe("cursor-user-2");
+    expect(await repository.listOutbox()).toHaveLength(2);
+    expect(await secondRepository.listOutbox()).toHaveLength(2);
+  });
+
+  it("refuses a repository user that does not own the database", () => {
+    expect(() =>
+      createDiaryRepository(database, {
+        userId: "user-2",
+        clock: makeClock("2026-07-29T10:00:00.000Z"),
+        generateId: makeIdGenerator(),
+      }),
+    ).toThrow("does not match database owner");
   });
 
   it("rolls back the entry and media when enqueueing fails", async () => {
@@ -171,6 +316,54 @@ describe("diary repository", () => {
     );
   });
 
+  it("batch-hydrates collection queries with one media lookup each", async () => {
+    await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "First",
+      media: [{ mimeType: "image/png" }],
+    });
+    await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Second",
+      media: [{ mimeType: "image/jpeg" }],
+    });
+    const mediaWhere = vi.spyOn(database.media, "where");
+
+    await repository.listEntriesForDate("2026-07-29");
+    expect(mediaWhere).toHaveBeenCalledTimes(1);
+
+    mediaWhere.mockClear();
+    await repository.listEntriesForYear(2026);
+    expect(mediaWhere).toHaveBeenCalledTimes(1);
+
+    mediaWhere.mockClear();
+    await repository.listDiaryImages();
+    expect(mediaWhere).toHaveBeenCalledTimes(1);
+  });
+
+  it("filters foreign entries before validating local dates", async () => {
+    await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Owned",
+      media: [{ mimeType: "image/png", storagePath: "owned.png" }],
+    });
+    await database.entries.add({
+      id: "foreign-entry",
+      userId: "foreign-user",
+      entryDate: "2026-99-99",
+      text: "Malformed foreign row",
+      createdAt: "2026-07-29T10:00:00.000Z",
+      updatedAt: "2026-07-29T10:00:00.000Z",
+      media: [],
+      syncState: "synced",
+    });
+
+    await expect(repository.listEntriesForYear(2026)).resolves.toHaveLength(1);
+    await expect(repository.listDiaryImages()).resolves.toMatchObject([
+      { storagePath: "owned.png" },
+    ]);
+  });
+
   it("rejects malformed local dates and invalid years", async () => {
     await expect(
       repository.createEntry({
@@ -191,10 +384,19 @@ describe("diary repository", () => {
   });
 
   it("gets media and manages background preference atomically with its outbox operation", async () => {
+    const originalBlob = createPersistableBlob("full image");
+    const originalThumbnail = createPersistableBlob("thumbnail");
     const saved = await repository.createEntry({
       entryDate: "2026-07-29",
       text: "With media",
-      media: [{ mimeType: "image/jpeg", storagePath: "photo.jpg" }],
+      media: [
+        {
+          mimeType: "image/jpeg",
+          storagePath: "photo.jpg",
+          localBlob: originalBlob,
+          thumbnailBlob: originalThumbnail,
+        },
+      ],
     });
     const media = saved.media[0];
     const preference: BackgroundPreference = {
@@ -203,8 +405,17 @@ describe("diary repository", () => {
     };
 
     expect(media).toBeDefined();
-    expect(await repository.getMedia(media?.id ?? "")).toEqual(media);
-    expect(await repository.listMediaForEntry(saved.id)).toEqual(saved.media);
+    expect(await repository.getMedia(media?.id ?? "")).toMatchObject({
+      id: media?.id,
+      storagePath: "photo.jpg",
+    });
+    expect(await repository.listMediaForEntry(saved.id)).toHaveLength(1);
+    expect(await (await repository.getMedia(media?.id ?? ""))?.localBlob?.text()).toBe(
+      "full image",
+    );
+    expect(
+      await (await repository.getMedia(media?.id ?? ""))?.thumbnailBlob?.text(),
+    ).toBe("thumbnail");
 
     await repository.setBackgroundPreference(
       preference,
@@ -294,5 +505,27 @@ describe("diary repository", () => {
     await repository.setSyncCursor("after-unsubscribe");
 
     expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("isolates listener failures and notifies a listener snapshot", async () => {
+    const laterListener = vi.fn();
+    let unsubscribeLater = () => {};
+
+    repository.subscribeToMutations(() => {
+      unsubscribeLater();
+      throw new Error("listener failed");
+    });
+    unsubscribeLater = repository.subscribeToMutations(laterListener);
+
+    await expect(
+      repository.createEntry({
+        entryDate: "2026-07-29",
+        text: "Committed despite listener",
+        media: [],
+      }),
+    ).resolves.toMatchObject({ text: "Committed despite listener" });
+
+    expect(laterListener).toHaveBeenCalledTimes(1);
+    expect(await repository.listEntriesForDate("2026-07-29")).toHaveLength(1);
   });
 });

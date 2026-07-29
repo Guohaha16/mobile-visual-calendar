@@ -26,7 +26,9 @@ export interface DiaryRepositoryDependencies {
   generateId: () => string;
 }
 
-export type OutboxOperationUpdate = Partial<Omit<OutboxOperation, "id">>;
+export type OutboxRetryUpdate = Partial<
+  Pick<OutboxOperation, "state" | "attempts" | "nextAttemptAt">
+>;
 
 const LOCAL_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -82,13 +84,6 @@ const compareMedia = (left: MediaAsset, right: MediaAsset): number =>
   left.createdAt.localeCompare(right.createdAt) ||
   left.id.localeCompare(right.id);
 
-const compareOutbox = (
-  left: OutboxOperation,
-  right: OutboxOperation,
-): number =>
-  left.createdAt.localeCompare(right.createdAt) ||
-  left.id.localeCompare(right.id);
-
 const isDiaryImage = (asset: MediaAsset): boolean =>
   asset.mimeType.startsWith("image/");
 
@@ -98,7 +93,13 @@ export class DiaryRepository {
   constructor(
     private readonly database: VisualDiaryDb,
     private readonly dependencies: DiaryRepositoryDependencies,
-  ) {}
+  ) {
+    if (database.ownerId !== dependencies.userId) {
+      throw new Error(
+        `Repository user ${dependencies.userId} does not match database owner ${database.ownerId}`,
+      );
+    }
+  }
 
   async createEntry(input: CreateEntryInput): Promise<DiaryEntry> {
     assertLocalDateKey(input.entryDate);
@@ -125,14 +126,7 @@ export class DiaryRepository {
       media,
       syncState: "waiting",
     };
-    const operation: OutboxOperation = {
-      id: this.dependencies.generateId(),
-      kind: "create-entry",
-      entityId: entry.id,
-      createdAt,
-      attempts: 0,
-      state: "waiting",
-    };
+    const operationId = this.dependencies.generateId();
 
     await this.database.transaction(
       "rw",
@@ -144,7 +138,14 @@ export class DiaryRepository {
         if (media.length > 0) {
           await this.database.media.bulkAdd(media);
         }
-        await this.database.outbox.add(operation);
+        await this.database.outbox.add({
+          id: operationId,
+          kind: "create-entry",
+          entityId: entry.id,
+          createdAt: await this.allocateOutboxCreatedAt(createdAt),
+          attempts: 0,
+          state: "waiting",
+        });
       },
     );
 
@@ -153,6 +154,8 @@ export class DiaryRepository {
   }
 
   async deleteEntry(id: string, deletedAt: string): Promise<void> {
+    const operationClock = this.dependencies.clock();
+
     await this.database.transaction(
       "rw",
       this.database.entries,
@@ -172,7 +175,7 @@ export class DiaryRepository {
           id: this.dependencies.generateId(),
           kind: "delete-entry",
           entityId: id,
-          createdAt: deletedAt,
+          createdAt: await this.allocateOutboxCreatedAt(operationClock),
           deletedAt,
           attempts: 0,
           state: "waiting",
@@ -219,7 +222,7 @@ export class DiaryRepository {
       )
       .sort(compareSameDateEntries);
 
-    return Promise.all(visibleEntries.map((entry) => this.hydrateEntry(entry)));
+    return this.hydrateEntries(visibleEntries);
   }
 
   async listEntriesForYear(year: number): Promise<DiaryEntry[]> {
@@ -229,19 +232,19 @@ export class DiaryRepository {
       .startsWith(prefix)
       .toArray();
 
-    for (const entry of entries) {
+    const ownedEntries = entries.filter(
+      (entry) => entry.userId === this.dependencies.userId,
+    );
+
+    for (const entry of ownedEntries) {
       assertLocalDateKey(entry.entryDate);
     }
 
-    const visibleEntries = entries
-      .filter(
-        (entry) =>
-          entry.userId === this.dependencies.userId &&
-          entry.deletedAt === undefined,
-      )
+    const visibleEntries = ownedEntries
+      .filter((entry) => entry.deletedAt === undefined)
       .sort(compareEntries);
 
-    return Promise.all(visibleEntries.map((entry) => this.hydrateEntry(entry)));
+    return this.hydrateEntries(visibleEntries);
   }
 
   async listYearImages(year: number): Promise<MediaAsset[]> {
@@ -251,21 +254,18 @@ export class DiaryRepository {
 
   async listDiaryImages(): Promise<MediaAsset[]> {
     const entries = await this.database.entries.toArray();
+    const ownedEntries = entries.filter(
+      (entry) => entry.userId === this.dependencies.userId,
+    );
 
-    for (const entry of entries) {
+    for (const entry of ownedEntries) {
       assertLocalDateKey(entry.entryDate);
     }
 
-    const visibleEntries = entries
-      .filter(
-        (entry) =>
-          entry.userId === this.dependencies.userId &&
-          entry.deletedAt === undefined,
-      )
+    const visibleEntries = ownedEntries
+      .filter((entry) => entry.deletedAt === undefined)
       .sort(compareEntries);
-    const hydratedEntries = await Promise.all(
-      visibleEntries.map((entry) => this.hydrateEntry(entry)),
-    );
+    const hydratedEntries = await this.hydrateEntries(visibleEntries);
 
     return hydratedEntries.flatMap((entry) =>
       entry.media.filter(isDiaryImage),
@@ -280,21 +280,15 @@ export class DiaryRepository {
 
   async setBackgroundPreference(
     value: BackgroundPreference,
-    updatedAt = this.dependencies.clock(),
+    updatedAt?: string,
   ): Promise<StoredPreference> {
+    const preferenceTimestamp = updatedAt ?? this.dependencies.clock();
     const preference: StoredPreference = {
       key: "background",
       value,
-      updatedAt,
+      updatedAt: preferenceTimestamp,
     };
-    const operation: OutboxOperation = {
-      id: this.dependencies.generateId(),
-      kind: "upsert-preference",
-      entityId: preference.key,
-      createdAt: updatedAt,
-      attempts: 0,
-      state: "waiting",
-    };
+    const operationId = this.dependencies.generateId();
 
     await this.database.transaction(
       "rw",
@@ -302,7 +296,14 @@ export class DiaryRepository {
       this.database.outbox,
       async () => {
         await this.database.preferences.put(preference);
-        await this.database.outbox.add(operation);
+        await this.database.outbox.add({
+          id: operationId,
+          kind: "upsert-preference",
+          entityId: preference.key,
+          createdAt: await this.allocateOutboxCreatedAt(preferenceTimestamp),
+          attempts: 0,
+          state: "waiting",
+        });
       },
     );
 
@@ -311,7 +312,7 @@ export class DiaryRepository {
   }
 
   async listOutbox(): Promise<OutboxOperation[]> {
-    return (await this.database.outbox.toArray()).sort(compareOutbox);
+    return this.database.outbox.orderBy("createdAt").toArray();
   }
 
   async getOutboxOperation(
@@ -322,7 +323,7 @@ export class DiaryRepository {
 
   async updateOutboxOperation(
     id: string,
-    update: OutboxOperationUpdate,
+    update: OutboxRetryUpdate,
   ): Promise<void> {
     const updated = await this.database.outbox.update(id, update);
     if (updated === 0) {
@@ -362,15 +363,70 @@ export class DiaryRepository {
   }
 
   private async hydrateEntry(entry: DiaryEntry): Promise<DiaryEntry> {
-    return {
+    const hydrated = await this.hydrateEntries([entry]);
+    return hydrated[0] ?? { ...entry, media: [] };
+  }
+
+  private async hydrateEntries(entries: DiaryEntry[]): Promise<DiaryEntry[]> {
+    if (entries.length === 0) {
+      return [];
+    }
+
+    const entryIds = entries.map((entry) => entry.id);
+    const media = await this.database.media
+      .where("entryId")
+      .anyOf(entryIds)
+      .toArray();
+    const mediaByEntry = new Map<string, MediaAsset[]>();
+
+    for (const asset of media
+      .filter((item) => item.userId === this.dependencies.userId)
+      .sort(compareMedia)) {
+      const entryMedia = mediaByEntry.get(asset.entryId) ?? [];
+      entryMedia.push(asset);
+      mediaByEntry.set(asset.entryId, entryMedia);
+    }
+
+    return entries.map((entry) => ({
       ...entry,
-      media: await this.listMediaForEntry(entry.id),
-    };
+      media: mediaByEntry.get(entry.id) ?? [],
+    }));
+  }
+
+  private async allocateOutboxCreatedAt(
+    clockTimestamp: string,
+  ): Promise<string> {
+    const clockMillis = Date.parse(clockTimestamp);
+    if (!Number.isFinite(clockMillis)) {
+      throw new TypeError(`Invalid clock timestamp: ${clockTimestamp}`);
+    }
+
+    const latestOperation = await this.database.outbox
+      .orderBy("createdAt")
+      .last();
+    if (latestOperation === undefined) {
+      return new Date(clockMillis).toISOString();
+    }
+
+    const latestMillis = Date.parse(latestOperation.createdAt);
+    if (!Number.isFinite(latestMillis)) {
+      throw new TypeError(
+        `Invalid persisted outbox timestamp: ${latestOperation.createdAt}`,
+      );
+    }
+
+    return new Date(
+      clockMillis <= latestMillis ? latestMillis + 1 : clockMillis,
+    ).toISOString();
   }
 
   private notifyMutation(): void {
-    for (const listener of this.listeners) {
-      listener();
+    for (const listener of [...this.listeners]) {
+      try {
+        listener();
+      } catch {
+        // A subscriber cannot invalidate a mutation that has already committed.
+      }
     }
   }
 }

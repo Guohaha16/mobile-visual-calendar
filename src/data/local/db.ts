@@ -16,6 +16,9 @@ export const VISUAL_DIARY_SCHEMA_V1 = {
   syncMeta: "key",
 } as const;
 
+const userScopedDatabaseName = (baseName: string, userId: string): string =>
+  `${baseName}::user:${encodeURIComponent(userId)}`;
+
 export class VisualDiaryDb extends Dexie {
   entries!: EntityTable<DiaryEntry, "id">;
   media!: EntityTable<MediaAsset, "id">;
@@ -23,11 +26,16 @@ export class VisualDiaryDb extends Dexie {
   preferences!: EntityTable<StoredPreference, "key">;
   syncMeta!: EntityTable<SyncMeta, "key">;
 
-  constructor(name: string) {
-    super(name);
+  constructor(
+    baseName: string,
+    readonly ownerId: string,
+  ) {
+    super(userScopedDatabaseName(baseName, ownerId));
     this.version(1).stores(VISUAL_DIARY_SCHEMA_V1);
   }
 }
 
-export const createVisualDiaryDb = (name: string): VisualDiaryDb =>
-  new VisualDiaryDb(name);
+export const createVisualDiaryDb = (
+  baseName: string,
+  userId: string,
+): VisualDiaryDb => new VisualDiaryDb(baseName, userId);
