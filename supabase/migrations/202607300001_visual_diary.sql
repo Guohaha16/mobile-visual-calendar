@@ -674,6 +674,7 @@ create or replace function public.visual_diary_snapshot(
 )
 returns jsonb
 language plpgsql
+stable
 security invoker
 set search_path = pg_catalog, public
 as $$
