@@ -30,6 +30,11 @@ export type OutboxRetryUpdate = Partial<
   Pick<OutboxOperation, "state" | "attempts" | "nextAttemptAt">
 >;
 
+export interface MediaStoragePathUpdate {
+  id: string;
+  storagePath: string;
+}
+
 const LOCAL_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 const isValidLocalDateKey = (value: string): boolean => {
@@ -213,6 +218,34 @@ export class DiaryRepository {
     return media
       .filter((asset) => asset.userId === this.dependencies.userId)
       .sort(compareMedia);
+  }
+
+  async updateMediaStoragePaths(
+    updates: readonly MediaStoragePathUpdate[],
+  ): Promise<void> {
+    if (updates.length === 0) {
+      return;
+    }
+    if (updates.some(({ storagePath }) => storagePath.trim().length === 0)) {
+      throw new TypeError("Cloud storage paths must not be empty");
+    }
+
+    await this.database.transaction("rw", this.database.media, async () => {
+      const persisted: MediaAsset[] = [];
+
+      for (const update of updates) {
+        const asset = await this.database.media.get(update.id);
+        if (
+          asset === undefined ||
+          asset.userId !== this.dependencies.userId
+        ) {
+          throw new Error(`Media asset not found: ${update.id}`);
+        }
+        persisted.push({ ...asset, storagePath: update.storagePath });
+      }
+
+      await this.database.media.bulkPut(persisted);
+    });
   }
 
   async listEntriesForDate(date: string): Promise<DiaryEntry[]> {

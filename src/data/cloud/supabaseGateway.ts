@@ -5,7 +5,10 @@ import type {
   MediaAsset,
   StoredPreference,
 } from "../../domain/types";
-import type { DiaryRepository } from "../local/diaryRepository";
+import type {
+  DiaryRepository,
+  MediaStoragePathUpdate,
+} from "../local/diaryRepository";
 import {
   CloudSessionPausedError,
   type CloudGateway,
@@ -13,105 +16,19 @@ import {
 } from "./cloudGateway";
 
 const STORAGE_BUCKET = "diary-images";
-const INITIAL_CURSOR = "1970-01-01T00:00:00.000Z";
+const THUMBNAIL_MAX_EDGE = 512;
 
-export type SupabaseFilter =
-  | {
-      operator: "eq" | "gt" | "is";
-      column: string;
-      value: unknown;
-    }
-  | {
-      operator: "in";
-      column: string;
-      value: readonly unknown[];
-    };
-
-export interface SupabaseOrder {
-  column: string;
-  ascending: boolean;
-}
-
-export interface SupabaseSelectRequest {
-  table: string;
-  columns: string;
-  filters: SupabaseFilter[];
-  order?: SupabaseOrder[];
-}
-
-export interface SupabaseUpsertRequest {
-  table: string;
-  rows: Array<Record<string, unknown>>;
-  onConflict: string;
-}
-
-export interface SupabaseUpdateRequest {
-  table: string;
-  values: Record<string, unknown>;
-  filters: SupabaseFilter[];
-}
-
-export interface SupabaseGatewayAdapter {
-  getSessionUser(): Promise<string | undefined>;
-  signInAnonymously(): Promise<string | undefined>;
-  upload(
-    bucket: string,
-    path: string,
-    body: Blob,
-    options: { contentType: string; upsert: boolean },
-  ): Promise<void>;
-  upsert(request: SupabaseUpsertRequest): Promise<void>;
-  update(request: SupabaseUpdateRequest): Promise<void>;
-  select<T>(request: SupabaseSelectRequest): Promise<T[]>;
-  remove(bucket: string, paths: string[]): Promise<void>;
-  download(bucket: string, path: string): Promise<Blob>;
-}
-
-export type SupabaseGatewayRepository = Pick<
-  DiaryRepository,
-  "getEntry" | "listMediaForEntry"
->;
-
-export interface SupabaseGatewayDependencies {
-  adapter: SupabaseGatewayAdapter | undefined;
-  repository: SupabaseGatewayRepository;
-}
-
-interface RawSupabaseResult {
-  data: unknown;
-  error: unknown;
-}
-
-interface RawSupabaseQuery extends PromiseLike<RawSupabaseResult> {
-  select(columns: string): RawSupabaseQuery;
-  upsert(
-    rows: Array<Record<string, unknown>>,
-    options: { onConflict: string },
-  ): RawSupabaseQuery;
-  update(values: Record<string, unknown>): RawSupabaseQuery;
-  eq(column: string, value: unknown): RawSupabaseQuery;
-  gt(column: string, value: unknown): RawSupabaseQuery;
-  in(column: string, values: readonly unknown[]): RawSupabaseQuery;
-  is(column: string, value: unknown): RawSupabaseQuery;
-  order(
-    column: string,
-    options: { ascending: boolean },
-  ): RawSupabaseQuery;
-}
-
-interface DiaryEntryRow {
+export interface SupabaseEntryPayload {
   id: string;
-  user_id: string;
   entry_date: string;
-  text: string | null;
+  text: string;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
 }
 
-interface MediaAssetRow {
+export interface SupabaseMediaPayload {
   id: string;
-  user_id: string;
   entry_id: string;
   storage_path: string;
   mime_type: string;
@@ -123,55 +40,193 @@ interface MediaAssetRow {
   deleted_at: string | null;
 }
 
-interface PreferenceRow {
+export interface SupabaseApplyCreateRequest {
+  operationId: string;
+  entry: SupabaseEntryPayload;
+  media: SupabaseMediaPayload[];
+}
+
+export interface SupabaseApplyDeleteRequest {
+  operationId: string;
+  entryId: string;
+  deletedAt: string;
+}
+
+export interface SupabaseApplyDeleteResult {
+  alreadyApplied: boolean;
+  storagePaths: string[];
+}
+
+export interface SupabaseApplyPreferenceRequest {
+  operationId: string;
+  mode: StoredPreference["value"]["mode"];
+  pinnedAssetId?: string;
+  updatedAt: string;
+}
+
+export interface SupabaseOperationResult {
+  alreadyApplied: boolean;
+}
+
+export interface SupabaseEntrySnapshotRow extends SupabaseEntryPayload {
   user_id: string;
-  key: string;
+}
+
+export interface SupabaseMediaSnapshotRow extends SupabaseMediaPayload {
+  user_id: string;
+}
+
+export interface SupabasePreferenceSnapshotRow {
+  user_id: string;
   background_mode: string;
   pinned_background_asset_id: string | null;
   updated_at: string;
-  deleted_at?: string | null;
 }
 
-interface MediaPathRow {
-  storage_path: string;
+export interface SupabaseSnapshot {
+  entries: SupabaseEntrySnapshotRow[];
+  media: SupabaseMediaSnapshotRow[];
+  preference: SupabasePreferenceSnapshotRow | null;
+  cursor: string;
 }
 
-const rawQuery = (
-  client: SupabaseClient,
-  table: string,
-): RawSupabaseQuery =>
-  client.from(table) as unknown as RawSupabaseQuery;
+export interface SupabaseGatewayAdapter {
+  getSessionUser(): Promise<string | undefined>;
+  signInAnonymously(): Promise<string | undefined>;
+  isOperationCompleted(operationId: string): Promise<boolean>;
+  upload(
+    bucket: string,
+    path: string,
+    body: Blob,
+    options: { contentType: string; upsert: boolean },
+  ): Promise<void>;
+  applyCreate(
+    request: SupabaseApplyCreateRequest,
+  ): Promise<SupabaseOperationResult>;
+  applyDelete(
+    request: SupabaseApplyDeleteRequest,
+  ): Promise<SupabaseApplyDeleteResult>;
+  applyPreference(
+    request: SupabaseApplyPreferenceRequest,
+  ): Promise<SupabaseOperationResult>;
+  getSnapshot(cursor?: string): Promise<SupabaseSnapshot>;
+  remove(bucket: string, paths: string[]): Promise<void>;
+  download(bucket: string, path: string): Promise<Blob>;
+}
 
-const throwOnError = (result: RawSupabaseResult): void => {
+export type SupabaseGatewayRepository = Pick<
+  DiaryRepository,
+  "getEntry" | "listMediaForEntry" | "updateMediaStoragePaths"
+>;
+
+export type ThumbnailCreator = (
+  blob: Blob,
+  mimeType: string,
+) => Promise<Blob>;
+
+export interface SupabaseGatewayDependencies {
+  adapter: SupabaseGatewayAdapter | undefined;
+  repository: SupabaseGatewayRepository;
+  createThumbnail?: ThumbnailCreator;
+}
+
+interface RawRpcResult {
+  data: unknown;
+  error: unknown;
+}
+
+interface RawRpcClient {
+  rpc(
+    functionName: string,
+    parameters?: Record<string, unknown>,
+  ): PromiseLike<RawRpcResult>;
+}
+
+interface CanvasSource {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  dispose(): void;
+}
+
+const throwOnError = (result: RawRpcResult): void => {
   if (result.error !== null && result.error !== undefined) {
     throw result.error;
   }
 };
 
-const applyFilters = (
-  query: RawSupabaseQuery,
-  filters: readonly SupabaseFilter[],
-): RawSupabaseQuery => {
-  let filtered = query;
+const rpc = async (
+  client: SupabaseClient,
+  functionName: string,
+  parameters?: Record<string, unknown>,
+): Promise<unknown> => {
+  const result = await (client as unknown as RawRpcClient).rpc(
+    functionName,
+    parameters,
+  );
+  throwOnError(result);
+  return result.data;
+};
 
-  for (const filter of filters) {
-    switch (filter.operator) {
-      case "eq":
-        filtered = filtered.eq(filter.column, filter.value);
-        break;
-      case "gt":
-        filtered = filtered.gt(filter.column, filter.value);
-        break;
-      case "in":
-        filtered = filtered.in(filter.column, filter.value);
-        break;
-      case "is":
-        filtered = filtered.is(filter.column, filter.value);
-        break;
-    }
+const requireObject = (
+  value: unknown,
+  label: string,
+): Record<string, unknown> => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} RPC returned an invalid result`);
+  }
+  return value as Record<string, unknown>;
+};
+
+const parseOperationResult = (
+  value: unknown,
+  label: string,
+): SupabaseOperationResult => {
+  const result = requireObject(value, label);
+  if (typeof result.already_applied !== "boolean") {
+    throw new Error(`${label} RPC omitted already_applied`);
+  }
+  return { alreadyApplied: result.already_applied };
+};
+
+const parseDeleteResult = (value: unknown): SupabaseApplyDeleteResult => {
+  const result = requireObject(value, "Delete");
+  if (
+    typeof result.already_applied !== "boolean" ||
+    !Array.isArray(result.storage_paths) ||
+    !result.storage_paths.every((path) => typeof path === "string")
+  ) {
+    throw new Error("Delete RPC returned an invalid result");
+  }
+  return {
+    alreadyApplied: result.already_applied,
+    storagePaths: result.storage_paths,
+  };
+};
+
+const parseSnapshot = (value: unknown): SupabaseSnapshot => {
+  const result = requireObject(value, "Snapshot");
+  if (
+    !Array.isArray(result.entries) ||
+    !Array.isArray(result.media) ||
+    !(
+      result.preference === null ||
+      (typeof result.preference === "object" &&
+        !Array.isArray(result.preference))
+    ) ||
+    typeof result.cursor !== "string" ||
+    result.cursor.length === 0
+  ) {
+    throw new Error("Snapshot RPC returned an invalid result");
   }
 
-  return filtered;
+  return {
+    entries: result.entries as SupabaseEntrySnapshotRow[],
+    media: result.media as SupabaseMediaSnapshotRow[],
+    preference:
+      result.preference as SupabasePreferenceSnapshotRow | null,
+    cursor: result.cursor,
+  };
 };
 
 export const createSupabaseGatewayAdapter = (
@@ -193,6 +248,16 @@ export const createSupabaseGatewayAdapter = (
     return data.user?.id;
   },
 
+  async isOperationCompleted(operationId) {
+    const data = await rpc(client, "visual_diary_operation_completed", {
+      p_operation_id: operationId,
+    });
+    if (typeof data !== "boolean") {
+      throw new Error("Operation lookup RPC returned an invalid result");
+    }
+    return data;
+  },
+
   async upload(bucket, path, body, options) {
     const { error } = await client.storage
       .from(bucket)
@@ -202,31 +267,39 @@ export const createSupabaseGatewayAdapter = (
     }
   },
 
-  async upsert(request) {
-    const result = await rawQuery(client, request.table).upsert(
-      request.rows,
-      { onConflict: request.onConflict },
-    );
-    throwOnError(result);
+  async applyCreate(request) {
+    const data = await rpc(client, "visual_diary_apply_create", {
+      p_operation_id: request.operationId,
+      p_entry: request.entry,
+      p_media: request.media,
+    });
+    return parseOperationResult(data, "Create");
   },
 
-  async update(request) {
-    const query = rawQuery(client, request.table).update(request.values);
-    const result = await applyFilters(query, request.filters);
-    throwOnError(result);
+  async applyDelete(request) {
+    const data = await rpc(client, "visual_diary_apply_delete", {
+      p_operation_id: request.operationId,
+      p_entry_id: request.entryId,
+      p_deleted_at: request.deletedAt,
+    });
+    return parseDeleteResult(data);
   },
 
-  async select<T>(request: SupabaseSelectRequest): Promise<T[]> {
-    let query = applyFilters(
-      rawQuery(client, request.table).select(request.columns),
-      request.filters,
-    );
-    for (const order of request.order ?? []) {
-      query = query.order(order.column, { ascending: order.ascending });
-    }
-    const result = await query;
-    throwOnError(result);
-    return (result.data ?? []) as T[];
+  async applyPreference(request) {
+    const data = await rpc(client, "visual_diary_apply_preference", {
+      p_operation_id: request.operationId,
+      p_background_mode: request.mode,
+      p_pinned_background_asset_id: request.pinnedAssetId ?? null,
+      p_updated_at: request.updatedAt,
+    });
+    return parseOperationResult(data, "Preference");
+  },
+
+  async getSnapshot(cursor) {
+    const data = await rpc(client, "visual_diary_snapshot", {
+      p_cursor: cursor ?? null,
+    });
+    return parseSnapshot(data);
   },
 
   async remove(bucket, paths) {
@@ -248,18 +321,162 @@ export const createSupabaseGatewayAdapter = (
   },
 });
 
+const boundedDimensions = (
+  width: number,
+  height: number,
+): { width: number; height: number } => {
+  const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(width, height));
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+};
+
+const decodeWithImageBitmap = async (
+  blob: Blob,
+): Promise<CanvasSource | undefined> => {
+  if (typeof globalThis.createImageBitmap !== "function") {
+    return undefined;
+  }
+  const bitmap = await globalThis.createImageBitmap(blob);
+  return {
+    source: bitmap,
+    width: bitmap.width,
+    height: bitmap.height,
+    dispose: () => bitmap.close(),
+  };
+};
+
+const decodeWithImageElement = async (
+  blob: Blob,
+): Promise<CanvasSource | undefined> => {
+  if (
+    typeof Image !== "function" ||
+    typeof URL.createObjectURL !== "function" ||
+    typeof URL.revokeObjectURL !== "function"
+  ) {
+    return undefined;
+  }
+
+  const image = new Image();
+  if (typeof image.decode !== "function") {
+    return undefined;
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  image.src = objectUrl;
+  try {
+    await image.decode();
+    return {
+      source: image,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      dispose: () => URL.revokeObjectURL(objectUrl),
+    };
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl);
+    throw error;
+  }
+};
+
+const renderOffscreenThumbnail = async (
+  decoded: CanvasSource,
+  width: number,
+  height: number,
+): Promise<Blob | undefined> => {
+  if (typeof OffscreenCanvas !== "function") {
+    return undefined;
+  }
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext("2d");
+  if (context === null) {
+    return undefined;
+  }
+  context.drawImage(decoded.source, 0, 0, width, height);
+  return canvas.convertToBlob({ type: "image/webp", quality: 0.82 });
+};
+
+const canvasToBlob = (
+  canvas: HTMLCanvasElement,
+  type: "image/webp" | "image/jpeg",
+): Promise<Blob | undefined> =>
+  new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob ?? undefined), type, 0.82);
+  });
+
+const renderHtmlThumbnail = async (
+  decoded: CanvasSource,
+  width: number,
+  height: number,
+): Promise<Blob | undefined> => {
+  if (typeof document === "undefined") {
+    return undefined;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (context === null) {
+    return undefined;
+  }
+  context.drawImage(decoded.source, 0, 0, width, height);
+  return (
+    (await canvasToBlob(canvas, "image/webp")) ??
+    (await canvasToBlob(canvas, "image/jpeg"))
+  );
+};
+
+export const createBrowserThumbnail: ThumbnailCreator = async (
+  blob,
+  mimeType,
+) => {
+  if (!mimeType.startsWith("image/")) {
+    return blob;
+  }
+
+  let decoded: CanvasSource | undefined;
+  try {
+    decoded =
+      (await decodeWithImageBitmap(blob)) ??
+      (await decodeWithImageElement(blob));
+    if (
+      decoded === undefined ||
+      decoded.width <= 0 ||
+      decoded.height <= 0
+    ) {
+      return blob;
+    }
+
+    const dimensions = boundedDimensions(decoded.width, decoded.height);
+    return (
+      (await renderOffscreenThumbnail(
+        decoded,
+        dimensions.width,
+        dimensions.height,
+      )) ??
+      (await renderHtmlThumbnail(
+        decoded,
+        dimensions.width,
+        dimensions.height,
+      )) ??
+      blob
+    );
+  } catch {
+    return blob;
+  } finally {
+    decoded?.dispose();
+  }
+};
+
 const isValidUserId = (value: string | undefined): value is string =>
   value !== undefined &&
   value.length > 0 &&
   value.trim() === value &&
   !value.includes("/");
 
-const requireTimestamp = (value: string, label: string): number => {
-  const milliseconds = Date.parse(value);
-  if (!Number.isFinite(milliseconds)) {
+const requireTimestamp = (value: string, label: string): void => {
+  if (!Number.isFinite(Date.parse(value))) {
     throw new TypeError(`Invalid ${label} timestamp: ${value}`);
   }
-  return milliseconds;
 };
 
 const requireLocalDate = (
@@ -308,20 +525,15 @@ const compareMedia = (left: MediaAsset, right: MediaAsset): number =>
   left.id.localeCompare(right.id);
 
 const compareEntryRows = (
-  left: DiaryEntryRow,
-  right: DiaryEntryRow,
+  left: SupabaseEntrySnapshotRow,
+  right: SupabaseEntrySnapshotRow,
 ): number =>
   left.updated_at.localeCompare(right.updated_at) ||
   left.id.localeCompare(right.id);
 
-const comparePreferenceRows = (
-  left: PreferenceRow,
-  right: PreferenceRow,
-): number => left.updated_at.localeCompare(right.updated_at);
-
 const compareMediaRows = (
-  left: MediaAssetRow,
-  right: MediaAssetRow,
+  left: SupabaseMediaSnapshotRow,
+  right: SupabaseMediaSnapshotRow,
 ): number =>
   left.entry_id.localeCompare(right.entry_id) ||
   left.sort_order - right.sort_order ||
@@ -335,10 +547,9 @@ const ownStoragePath = (userId: string, path: string): boolean =>
 const optionalNumber = (value: number | null): number | undefined =>
   value === null ? undefined : value;
 
-const mapPreference = (row: PreferenceRow): StoredPreference => {
-  if (row.key !== "background") {
-    throw new Error(`Unsupported preference key: ${row.key}`);
-  }
+const mapPreference = (
+  row: SupabasePreferenceSnapshotRow,
+): StoredPreference => {
   if (row.background_mode === "random") {
     return {
       key: "background",
@@ -360,24 +571,6 @@ const mapPreference = (row: PreferenceRow): StoredPreference => {
     };
   }
   throw new Error(`Invalid background preference mode: ${row.background_mode}`);
-};
-
-const latestTimestamp = (
-  initial: string,
-  candidates: readonly string[],
-): string => {
-  let latest = initial;
-  let latestMilliseconds = requireTimestamp(initial, "cursor");
-
-  for (const candidate of candidates) {
-    const milliseconds = requireTimestamp(candidate, "remote update");
-    if (milliseconds > latestMilliseconds) {
-      latest = candidate;
-      latestMilliseconds = milliseconds;
-    }
-  }
-
-  return latest;
 };
 
 export class SupabaseGateway implements CloudGateway {
@@ -418,28 +611,16 @@ export class SupabaseGateway implements CloudGateway {
     const media = (
       await this.dependencies.repository.listMediaForEntry(entryId)
     ).sort(compareMedia);
-    const mediaRows: Array<Record<string, unknown>> = [];
+    const mediaPayload: SupabaseMediaPayload[] = [];
+    const storageUpdates: MediaStoragePathUpdate[] = [];
 
     for (const asset of media) {
       if (asset.userId !== userId || asset.entryId !== entry.id) {
         throw new Error(`Media asset is not owned by diary entry: ${asset.id}`);
       }
-
       const storagePath = storagePathFor(userId, entry.entryDate, asset);
-      if (asset.localBlob !== undefined) {
-        await this.requireAdapter().upload(
-          STORAGE_BUCKET,
-          storagePath,
-          asset.localBlob,
-          { contentType: asset.mimeType, upsert: true },
-        );
-      } else if (asset.storagePath !== storagePath) {
-        throw new Error(`Media asset has no uploadable blob: ${asset.id}`);
-      }
-
-      mediaRows.push({
+      mediaPayload.push({
         id: asset.id,
-        user_id: userId,
         entry_id: entry.id,
         storage_path: storagePath,
         mime_type: asset.mimeType,
@@ -449,33 +630,51 @@ export class SupabaseGateway implements CloudGateway {
         created_at: asset.createdAt,
         updated_at: entry.updatedAt,
         deleted_at: null,
-        last_operation_id: operationId,
       });
+      if (asset.storagePath !== storagePath) {
+        storageUpdates.push({ id: asset.id, storagePath });
+      }
     }
 
-    await this.requireAdapter().upsert({
-      table: "diary_entries",
-      onConflict: "user_id,id",
-      rows: [
-        {
+    const adapter = this.requireAdapter();
+    const completed = await adapter.isOperationCompleted(operationId);
+    if (!completed) {
+      for (let index = 0; index < media.length; index += 1) {
+        const asset = media[index];
+        const payload = mediaPayload[index];
+        if (asset === undefined || payload === undefined) {
+          throw new Error("Media payload construction failed");
+        }
+        if (asset.localBlob !== undefined) {
+          await adapter.upload(
+            STORAGE_BUCKET,
+            payload.storage_path,
+            asset.localBlob,
+            { contentType: asset.mimeType, upsert: true },
+          );
+        } else if (asset.storagePath !== payload.storage_path) {
+          throw new Error(`Media asset has no uploadable blob: ${asset.id}`);
+        }
+      }
+
+      await adapter.applyCreate({
+        operationId,
+        entry: {
           id: entry.id,
-          user_id: userId,
           entry_date: entry.entryDate,
           text: entry.text,
           created_at: entry.createdAt,
           updated_at: entry.updatedAt,
           deleted_at: entry.deletedAt ?? null,
-          last_operation_id: operationId,
         },
-      ],
-    });
-
-    if (mediaRows.length > 0) {
-      await this.requireAdapter().upsert({
-        table: "media_assets",
-        onConflict: "user_id,id",
-        rows: mediaRows,
+        media: mediaPayload,
       });
+    }
+
+    if (storageUpdates.length > 0) {
+      await this.dependencies.repository.updateMediaStoragePaths(
+        storageUpdates,
+      );
     }
   }
 
@@ -487,31 +686,13 @@ export class SupabaseGateway implements CloudGateway {
     requireTimestamp(deletedAt, "deletion");
     const { userId } = await this.ensureSession();
     const adapter = this.requireAdapter();
-
-    await adapter.update({
-      table: "diary_entries",
-      values: {
-        deleted_at: deletedAt,
-        updated_at: deletedAt,
-        last_operation_id: operationId,
-      },
-      filters: [
-        { operator: "eq", column: "id", value: entryId },
-        { operator: "eq", column: "user_id", value: userId },
-      ],
+    const result = await adapter.applyDelete({
+      operationId,
+      entryId,
+      deletedAt,
     });
-
     const localMedia =
       await this.dependencies.repository.listMediaForEntry(entryId);
-    const remoteMedia = await adapter.select<MediaPathRow>({
-      table: "media_assets",
-      columns: "storage_path",
-      filters: [
-        { operator: "eq", column: "entry_id", value: entryId },
-        { operator: "eq", column: "user_id", value: userId },
-      ],
-      order: [{ column: "storage_path", ascending: true }],
-    });
     const paths = new Set<string>();
 
     for (const asset of localMedia) {
@@ -524,9 +705,9 @@ export class SupabaseGateway implements CloudGateway {
         paths.add(asset.storagePath);
       }
     }
-    for (const row of remoteMedia) {
-      if (ownStoragePath(userId, row.storage_path)) {
-        paths.add(row.storage_path);
+    for (const path of result.storagePaths) {
+      if (ownStoragePath(userId, path)) {
+        paths.add(path);
       }
     }
 
@@ -540,101 +721,45 @@ export class SupabaseGateway implements CloudGateway {
     operationId: string,
   ): Promise<void> {
     requireTimestamp(preference.updatedAt, "preference");
-    const { userId } = await this.ensureSession();
+    await this.ensureSession();
 
-    await this.requireAdapter().upsert({
-      table: "user_preferences",
-      onConflict: "user_id,key",
-      rows: [
-        {
-          user_id: userId,
-          key: preference.key,
-          background_mode: preference.value.mode,
-          pinned_background_asset_id:
-            preference.value.mode === "pinned"
-              ? preference.value.pinnedAssetId
-              : null,
-          updated_at: preference.updatedAt,
-          deleted_at: null,
-          last_operation_id: operationId,
-        },
-      ],
+    await this.requireAdapter().applyPreference({
+      operationId,
+      mode: preference.value.mode,
+      ...(preference.value.mode === "pinned"
+        ? { pinnedAssetId: preference.value.pinnedAssetId }
+        : {}),
+      updatedAt: preference.updatedAt,
     });
   }
 
   async pullSince(cursor?: string): Promise<CloudPullResult> {
     const { userId } = await this.ensureSession();
     const adapter = this.requireAdapter();
-    const baseCursor = cursor ?? INITIAL_CURSOR;
-    requireTimestamp(baseCursor, "cursor");
-    const updatedFilter: SupabaseFilter[] =
-      cursor === undefined
-        ? []
-        : [{ operator: "gt", column: "updated_at", value: cursor }];
 
-    const entries = (
-      await adapter.select<DiaryEntryRow>({
-        table: "diary_entries",
-        columns:
-          "id,user_id,entry_date,text,created_at,updated_at,deleted_at",
-        filters: [
-          { operator: "eq", column: "user_id", value: userId },
-          ...updatedFilter,
-        ],
-        order: [
-          { column: "updated_at", ascending: true },
-          { column: "id", ascending: true },
-        ],
-      })
-    ).sort(compareEntryRows);
-    const preferences = (
-      await adapter.select<PreferenceRow>({
-        table: "user_preferences",
-        columns:
-          "user_id,key,background_mode,pinned_background_asset_id,updated_at,deleted_at",
-        filters: [
-          { operator: "eq", column: "user_id", value: userId },
-          { operator: "eq", column: "key", value: "background" },
-          { operator: "is", column: "deleted_at", value: null },
-          ...updatedFilter,
-        ],
-        order: [{ column: "updated_at", ascending: true }],
-      })
-    ).sort(comparePreferenceRows);
+    // The RPC intentionally returns a complete transaction-consistent snapshot.
+    // Cursor is a server high-water mark for diagnostics/future CDC, not filtering.
+    const snapshot = await adapter.getSnapshot(cursor);
+    this.assertOwnRows(userId, snapshot.entries);
+    this.assertOwnRows(userId, snapshot.media);
+    if (
+      snapshot.preference !== null &&
+      snapshot.preference.user_id !== userId
+    ) {
+      throw new Error("Supabase returned a preference for another user");
+    }
 
-    this.assertOwnRows(userId, entries);
-    this.assertOwnRows(userId, preferences);
-
-    const entryIds = entries.map((row) => row.id);
-    const mediaRows =
-      entryIds.length === 0
-        ? []
-        : (
-            await adapter.select<MediaAssetRow>({
-              table: "media_assets",
-              columns:
-                "id,user_id,entry_id,storage_path,mime_type,width,height,sort_order,created_at,updated_at,deleted_at",
-              filters: [
-                { operator: "eq", column: "user_id", value: userId },
-                { operator: "in", column: "entry_id", value: entryIds },
-                { operator: "is", column: "deleted_at", value: null },
-              ],
-              order: [
-                { column: "entry_id", ascending: true },
-                { column: "sort_order", ascending: true },
-                { column: "created_at", ascending: true },
-                { column: "id", ascending: true },
-              ],
-            })
-          ).sort(compareMediaRows);
-
-    this.assertOwnRows(userId, mediaRows);
+    const entries = [...snapshot.entries].sort(compareEntryRows);
+    const mediaRows = [...snapshot.media].sort(compareMediaRows);
     const entryById = new Map(entries.map((row) => [row.id, row]));
     const mediaByEntry = new Map<string, MediaAsset[]>();
 
     for (const row of mediaRows) {
       const parent = entryById.get(row.entry_id);
-      if (parent === undefined || parent.deleted_at !== null) {
+      if (parent === undefined) {
+        throw new Error(`Remote media has no snapshot entry: ${row.id}`);
+      }
+      if (parent.deleted_at !== null || row.deleted_at !== null) {
         continue;
       }
       if (!ownStoragePath(userId, row.storage_path)) {
@@ -645,6 +770,9 @@ export class SupabaseGateway implements CloudGateway {
         STORAGE_BUCKET,
         row.storage_path,
       );
+      const thumbnailBlob = await (
+        this.dependencies.createThumbnail ?? createBrowserThumbnail
+      )(localBlob, row.mime_type);
       const mapped: MediaAsset = {
         id: row.id,
         entryId: row.entry_id,
@@ -656,6 +784,7 @@ export class SupabaseGateway implements CloudGateway {
         sortOrder: row.sort_order,
         createdAt: row.created_at,
         localBlob,
+        thumbnailBlob,
       };
       const entryMedia = mediaByEntry.get(row.entry_id) ?? [];
       entryMedia.push(mapped);
@@ -666,29 +795,22 @@ export class SupabaseGateway implements CloudGateway {
       id: row.id,
       userId,
       entryDate: row.entry_date,
-      text: row.text ?? "",
+      text: row.text,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       ...(row.deleted_at === null ? {} : { deletedAt: row.deleted_at }),
       media: (mediaByEntry.get(row.id) ?? []).sort(compareMedia),
       syncState: "synced",
     }));
-    const activePreferences = preferences.filter(
-      (row) => row.deleted_at === null || row.deleted_at === undefined,
-    );
-    const preferenceRow = activePreferences.at(-1);
     const preference =
-      preferenceRow === undefined ? undefined : mapPreference(preferenceRow);
-    const nextCursor = latestTimestamp(baseCursor, [
-      ...entries.map((row) => row.updated_at),
-      ...mediaRows.map((row) => row.updated_at),
-      ...preferences.map((row) => row.updated_at),
-    ]);
+      snapshot.preference === null
+        ? undefined
+        : mapPreference(snapshot.preference);
 
     return {
       entries: mappedEntries,
       ...(preference === undefined ? {} : { preferences: preference }),
-      cursor: nextCursor,
+      cursor: snapshot.cursor,
     };
   }
 
@@ -730,6 +852,7 @@ export class SupabaseGateway implements CloudGateway {
 export const createSupabaseGateway = (
   repository: SupabaseGatewayRepository,
   client: SupabaseClient | undefined,
+  createThumbnail: ThumbnailCreator = createBrowserThumbnail,
 ): SupabaseGateway =>
   new SupabaseGateway({
     repository,
@@ -737,4 +860,5 @@ export const createSupabaseGateway = (
       client === undefined
         ? undefined
         : createSupabaseGatewayAdapter(client),
+    createThumbnail,
   });

@@ -449,6 +449,59 @@ describe("diary repository", () => {
     expect(await repository.getBackgroundPreference()).toEqual(preference);
   });
 
+  it("atomically persists owned cloud storage paths while retaining local blobs", async () => {
+    const originalBlob = createPersistableBlob("offline original");
+    const originalThumbnail = createPersistableBlob("offline thumbnail");
+    const saved = await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Pending cloud metadata",
+      media: [
+        {
+          mimeType: "image/png",
+          localBlob: originalBlob,
+          thumbnailBlob: originalThumbnail,
+        },
+      ],
+    });
+    const ownedMedia = saved.media[0];
+    if (ownedMedia === undefined) {
+      throw new Error("Expected owned media");
+    }
+    await database.media.add({
+      ...ownedMedia,
+      id: "foreign-media",
+      userId: "user-2",
+    });
+    const outboxCount = (await repository.listOutbox()).length;
+
+    await expect(
+      repository.updateMediaStoragePaths([
+        {
+          id: ownedMedia.id,
+          storagePath: "user-1/2026/07/owned.png",
+        },
+        {
+          id: "foreign-media",
+          storagePath: "user-2/2026/07/foreign.png",
+        },
+      ]),
+    ).rejects.toThrow("Media asset not found");
+    expect((await repository.getMedia(ownedMedia.id))?.storagePath).toBeUndefined();
+
+    await repository.updateMediaStoragePaths([
+      {
+        id: ownedMedia.id,
+        storagePath: "user-1/2026/07/owned.png",
+      },
+    ]);
+
+    const persisted = await repository.getMedia(ownedMedia.id);
+    expect(persisted?.storagePath).toBe("user-1/2026/07/owned.png");
+    expect(await persisted?.localBlob?.text()).toBe("offline original");
+    expect(await persisted?.thumbnailBlob?.text()).toBe("offline thumbnail");
+    expect(await repository.listOutbox()).toHaveLength(outboxCount);
+  });
+
   it("supports deterministic outbox processing and entry sync-state updates", async () => {
     const first = await repository.createEntry({
       entryDate: "2026-07-29",

@@ -6,14 +6,18 @@ import type {
   MediaAsset,
   StoredPreference,
 } from "../../domain/types";
+import type { MediaStoragePathUpdate } from "../local/diaryRepository";
 import { CloudSessionPausedError } from "./cloudGateway";
 import { createSupabaseClient } from "./supabaseClient";
 import {
+  createBrowserThumbnail,
   SupabaseGateway,
+  type SupabaseApplyCreateRequest,
+  type SupabaseApplyDeleteRequest,
+  type SupabaseApplyDeleteResult,
+  type SupabaseApplyPreferenceRequest,
   type SupabaseGatewayAdapter,
-  type SupabaseSelectRequest,
-  type SupabaseUpdateRequest,
-  type SupabaseUpsertRequest,
+  type SupabaseSnapshot,
 } from "./supabaseGateway";
 
 const entry: DiaryEntry = {
@@ -39,36 +43,72 @@ const media: MediaAsset = {
   localBlob: new Blob(["image"], { type: "image/png" }),
 };
 
-const createRepository = (
-  entryResult: DiaryEntry | undefined = entry,
-  mediaResult: MediaAsset[] = [media],
-) => ({
-  getEntry: vi.fn(async () => entryResult),
-  listMediaForEntry: vi.fn(async () => mediaResult),
-});
+class FakeRepository {
+  entry: DiaryEntry | undefined = entry;
+  media: MediaAsset[] = [media];
+  readonly metadataUpdates: MediaStoragePathUpdate[][] = [];
+  readonly metadataFailures: Error[] = [];
+
+  constructor(private readonly events: string[]) {}
+
+  async getEntry(id: string): Promise<DiaryEntry | undefined> {
+    return this.entry?.id === id ? this.entry : undefined;
+  }
+
+  async listMediaForEntry(entryId: string): Promise<MediaAsset[]> {
+    return this.media.filter((asset) => asset.entryId === entryId);
+  }
+
+  async updateMediaStoragePaths(
+    updates: readonly MediaStoragePathUpdate[],
+  ): Promise<void> {
+    this.events.push("persist-storage-paths");
+    this.metadataUpdates.push([...updates]);
+    const failure = this.metadataFailures.shift();
+    if (failure !== undefined) {
+      throw failure;
+    }
+    const byId = new Map(updates.map((update) => [update.id, update.storagePath]));
+    this.media = this.media.map((asset) => {
+      const storagePath = byId.get(asset.id);
+      return storagePath === undefined ? asset : { ...asset, storagePath };
+    });
+  }
+}
 
 class FakeSupabaseAdapter implements SupabaseGatewayAdapter {
   sessionUserId?: string;
   anonymousUserId: string | null = "anonymous-user";
   signInCalls = 0;
-  readonly events: string[] = [];
+  readonly completedOperations = new Set<string>();
+  readonly operationChecks: string[] = [];
   readonly uploads: Array<{
     bucket: string;
     path: string;
     body: Blob;
     options: { contentType: string; upsert: boolean };
   }> = [];
-  readonly upserts: SupabaseUpsertRequest[] = [];
-  readonly updates: SupabaseUpdateRequest[] = [];
-  readonly selects: SupabaseSelectRequest[] = [];
+  readonly applyCreates: SupabaseApplyCreateRequest[] = [];
+  readonly applyDeletes: SupabaseApplyDeleteRequest[] = [];
+  readonly applyPreferences: SupabaseApplyPreferenceRequest[] = [];
   readonly removals: Array<{ bucket: string; paths: string[] }> = [];
   readonly downloads: Array<{ bucket: string; path: string }> = [];
-  readonly rows = new Map<string, Array<Record<string, unknown>>>();
+  readonly snapshotCursors: Array<string | undefined> = [];
   readonly blobs = new Map<string, Blob>();
+  snapshot: SupabaseSnapshot = {
+    entries: [],
+    media: [],
+    preference: null,
+    cursor: "server-cursor-empty",
+  };
+  deleteStoragePaths: string[] = [];
   uploadError?: Error;
-  updateError?: Error;
-  selectError?: Error;
+  applyCreateError?: Error;
+  applyDeleteError?: Error;
+  snapshotError?: Error;
   downloadError?: Error;
+
+  constructor(private readonly events: string[]) {}
 
   async getSessionUser(): Promise<string | undefined> {
     this.events.push("get-session");
@@ -79,6 +119,12 @@ class FakeSupabaseAdapter implements SupabaseGatewayAdapter {
     this.events.push("sign-in");
     this.signInCalls += 1;
     return this.anonymousUserId ?? undefined;
+  }
+
+  async isOperationCompleted(operationId: string): Promise<boolean> {
+    this.events.push(`check:${operationId}`);
+    this.operationChecks.push(operationId);
+    return this.completedOperations.has(operationId);
   }
 
   async upload(
@@ -94,28 +140,52 @@ class FakeSupabaseAdapter implements SupabaseGatewayAdapter {
     this.uploads.push({ bucket, path, body, options });
   }
 
-  async upsert(request: SupabaseUpsertRequest): Promise<void> {
-    this.events.push(`upsert:${request.table}`);
-    this.upserts.push(request);
+  async applyCreate(
+    request: SupabaseApplyCreateRequest,
+  ): Promise<{ alreadyApplied: boolean }> {
+    this.events.push(`apply-create:${request.operationId}`);
+    if (this.applyCreateError !== undefined) {
+      throw this.applyCreateError;
+    }
+    this.applyCreates.push(request);
+    const alreadyApplied = this.completedOperations.has(request.operationId);
+    this.completedOperations.add(request.operationId);
+    return { alreadyApplied };
   }
 
-  async update(request: SupabaseUpdateRequest): Promise<void> {
-    this.events.push(`update:${request.table}`);
-    if (this.updateError !== undefined) {
-      throw this.updateError;
+  async applyDelete(
+    request: SupabaseApplyDeleteRequest,
+  ): Promise<SupabaseApplyDeleteResult> {
+    this.events.push(`apply-delete:${request.operationId}`);
+    if (this.applyDeleteError !== undefined) {
+      throw this.applyDeleteError;
     }
-    this.updates.push(request);
+    this.applyDeletes.push(request);
+    const alreadyApplied = this.completedOperations.has(request.operationId);
+    this.completedOperations.add(request.operationId);
+    return {
+      alreadyApplied,
+      storagePaths: [...this.deleteStoragePaths],
+    };
   }
 
-  async select<T>(
-    request: SupabaseSelectRequest,
-  ): Promise<T[]> {
-    this.events.push(`select:${request.table}`);
-    if (this.selectError !== undefined) {
-      throw this.selectError;
+  async applyPreference(
+    request: SupabaseApplyPreferenceRequest,
+  ): Promise<{ alreadyApplied: boolean }> {
+    this.events.push(`apply-preference:${request.operationId}`);
+    this.applyPreferences.push(request);
+    const alreadyApplied = this.completedOperations.has(request.operationId);
+    this.completedOperations.add(request.operationId);
+    return { alreadyApplied };
+  }
+
+  async getSnapshot(cursor?: string): Promise<SupabaseSnapshot> {
+    this.events.push("snapshot");
+    if (this.snapshotError !== undefined) {
+      throw this.snapshotError;
     }
-    this.selects.push(request);
-    return (this.rows.get(request.table) ?? []) as unknown as T[];
+    this.snapshotCursors.push(cursor);
+    return this.snapshot;
   }
 
   async remove(bucket: string, paths: string[]): Promise<void> {
@@ -136,6 +206,21 @@ class FakeSupabaseAdapter implements SupabaseGatewayAdapter {
     return blob;
   }
 }
+
+const createContext = () => {
+  const events: string[] = [];
+  const adapter = new FakeSupabaseAdapter(events);
+  const repository = new FakeRepository(events);
+  const createThumbnail = vi.fn(async (blob: Blob) =>
+    new Blob([await blob.text(), "-thumbnail"], { type: "image/webp" }),
+  );
+  const gateway = new SupabaseGateway({
+    adapter,
+    repository,
+    createThumbnail,
+  });
+  return { adapter, createThumbnail, events, gateway, repository };
+};
 
 describe("createSupabaseClient", () => {
   it("returns undefined unless both browser environment values are present", () => {
@@ -190,11 +275,7 @@ describe("createSupabaseClient", () => {
 
 describe("SupabaseGateway sessions", () => {
   it("returns the anonymous user and signs in exactly once", async () => {
-    const adapter = new FakeSupabaseAdapter();
-    const gateway = new SupabaseGateway({
-      adapter,
-      repository: createRepository(),
-    });
+    const { adapter, gateway } = createContext();
 
     await expect(gateway.ensureSession()).resolves.toEqual({
       userId: "anonymous-user",
@@ -202,17 +283,12 @@ describe("SupabaseGateway sessions", () => {
     await expect(gateway.ensureSession()).resolves.toEqual({
       userId: "anonymous-user",
     });
-
     expect(adapter.signInCalls).toBe(1);
   });
 
   it("uses the current session without anonymous sign-in", async () => {
-    const adapter = new FakeSupabaseAdapter();
+    const { adapter, gateway } = createContext();
     adapter.sessionUserId = "existing-user";
-    const gateway = new SupabaseGateway({
-      adapter,
-      repository: createRepository(),
-    });
 
     await expect(gateway.ensureSession()).resolves.toEqual({
       userId: "existing-user",
@@ -221,163 +297,138 @@ describe("SupabaseGateway sessions", () => {
   });
 
   it("pauses when Supabase is absent or anonymous auth returns no valid user", async () => {
-    const invalid = new FakeSupabaseAdapter();
-    invalid.anonymousUserId = null;
+    const invalid = createContext();
+    invalid.adapter.anonymousUserId = null;
 
     await expect(
       new SupabaseGateway({
         adapter: undefined,
-        repository: createRepository(),
+        repository: invalid.repository,
+        createThumbnail: invalid.createThumbnail,
       }).ensureSession(),
     ).rejects.toBeInstanceOf(CloudSessionPausedError);
-    await expect(
-      new SupabaseGateway({
-        adapter: invalid,
-        repository: createRepository(),
-      }).ensureSession(),
-    ).rejects.toBeInstanceOf(CloudSessionPausedError);
+    await expect(invalid.gateway.ensureSession()).rejects.toBeInstanceOf(
+      CloudSessionPausedError,
+    );
   });
 });
 
 describe("SupabaseGateway pushes", () => {
-  it("uploads a deterministic private path before idempotent metadata upserts", async () => {
-    const adapter = new FakeSupabaseAdapter();
-    const gateway = new SupabaseGateway({
-      adapter,
-      repository: createRepository(),
-    });
+  it("uses the operation ledger to skip sequential replay uploads and DB application", async () => {
+    const { adapter, events, gateway, repository } = createContext();
 
-    await gateway.pushCreate("entry-1", "operation-1");
-    await gateway.pushCreate("entry-1", "operation-1");
+    await gateway.pushCreate("entry-1", "operation-create");
+    await gateway.pushCreate("entry-1", "operation-create");
 
-    expect(adapter.uploads.map((upload) => upload.path)).toEqual([
-      "anonymous-user/2026/07/media-1.png",
-      "anonymous-user/2026/07/media-1.png",
-    ]);
+    expect(adapter.uploads).toHaveLength(1);
     expect(adapter.uploads[0]).toMatchObject({
       bucket: "diary-images",
+      path: "anonymous-user/2026/07/media-1.png",
       options: { contentType: "image/png", upsert: true },
     });
-    expect(adapter.events.slice(2, 5)).toEqual([
+    expect(adapter.applyCreates).toEqual([
+      {
+        operationId: "operation-create",
+        entry: {
+          id: "entry-1",
+          entry_date: "2026-07-30",
+          text: "Cloud diary",
+          created_at: "2026-07-30T08:00:00.000Z",
+          updated_at: "2026-07-30T08:00:00.000Z",
+          deleted_at: null,
+        },
+        media: [
+          {
+            id: "media-1",
+            entry_id: "entry-1",
+            storage_path: "anonymous-user/2026/07/media-1.png",
+            mime_type: "image/png",
+            width: 1200,
+            height: 900,
+            sort_order: 0,
+            created_at: "2026-07-30T08:00:00.000Z",
+            updated_at: "2026-07-30T08:00:00.000Z",
+            deleted_at: null,
+          },
+        ],
+      },
+    ]);
+    expect(repository.metadataUpdates).toEqual([
+      [
+        {
+          id: "media-1",
+          storagePath: "anonymous-user/2026/07/media-1.png",
+        },
+      ],
+    ]);
+    expect(events).toEqual([
+      "get-session",
+      "sign-in",
+      "check:operation-create",
       "upload:anonymous-user/2026/07/media-1.png",
-      "upsert:diary_entries",
-      "upsert:media_assets",
-    ]);
-    expect(adapter.upserts.filter(({ table }) => table === "diary_entries")).toEqual([
-      {
-        table: "diary_entries",
-        onConflict: "user_id,id",
-        rows: [
-          {
-            id: "entry-1",
-            user_id: "anonymous-user",
-            entry_date: "2026-07-30",
-            text: "Cloud diary",
-            created_at: "2026-07-30T08:00:00.000Z",
-            updated_at: "2026-07-30T08:00:00.000Z",
-            deleted_at: null,
-            last_operation_id: "operation-1",
-          },
-        ],
-      },
-      {
-        table: "diary_entries",
-        onConflict: "user_id,id",
-        rows: [
-          {
-            id: "entry-1",
-            user_id: "anonymous-user",
-            entry_date: "2026-07-30",
-            text: "Cloud diary",
-            created_at: "2026-07-30T08:00:00.000Z",
-            updated_at: "2026-07-30T08:00:00.000Z",
-            deleted_at: null,
-            last_operation_id: "operation-1",
-          },
-        ],
-      },
-    ]);
-    expect(adapter.upserts.filter(({ table }) => table === "media_assets")).toEqual([
-      {
-        table: "media_assets",
-        onConflict: "user_id,id",
-        rows: [
-          {
-            id: "media-1",
-            user_id: "anonymous-user",
-            entry_id: "entry-1",
-            storage_path: "anonymous-user/2026/07/media-1.png",
-            mime_type: "image/png",
-            width: 1200,
-            height: 900,
-            sort_order: 0,
-            created_at: "2026-07-30T08:00:00.000Z",
-            updated_at: "2026-07-30T08:00:00.000Z",
-            deleted_at: null,
-            last_operation_id: "operation-1",
-          },
-        ],
-      },
-      {
-        table: "media_assets",
-        onConflict: "user_id,id",
-        rows: [
-          {
-            id: "media-1",
-            user_id: "anonymous-user",
-            entry_id: "entry-1",
-            storage_path: "anonymous-user/2026/07/media-1.png",
-            mime_type: "image/png",
-            width: 1200,
-            height: 900,
-            sort_order: 0,
-            created_at: "2026-07-30T08:00:00.000Z",
-            updated_at: "2026-07-30T08:00:00.000Z",
-            deleted_at: null,
-            last_operation_id: "operation-1",
-          },
-        ],
-      },
+      "apply-create:operation-create",
+      "persist-storage-paths",
+      "check:operation-create",
     ]);
   });
 
-  it("writes the exact tombstone before removing only owned paths", async () => {
-    const adapter = new FakeSupabaseAdapter();
-    adapter.rows.set("media_assets", [
-      { storage_path: "anonymous-user/2026/07/remote.png" },
-      { storage_path: "other-user/2026/07/not-owned.png" },
-    ]);
-    const localMedia = [
-      { ...media, storagePath: "anonymous-user/2026/07/local.png" },
-      { ...media, id: "media-2", storagePath: "other-user/unsafe.png" },
+  it("retries only local metadata when the RPC completed before persistence failed", async () => {
+    const context = createContext();
+    const persistenceFailure = new Error("IndexedDB unavailable");
+    context.repository.metadataFailures.push(persistenceFailure);
+
+    await expect(
+      context.gateway.pushCreate("entry-1", "operation-create"),
+    ).rejects.toBe(persistenceFailure);
+    await expect(
+      context.gateway.pushCreate("entry-1", "operation-create"),
+    ).resolves.toBeUndefined();
+
+    expect(context.adapter.uploads).toHaveLength(1);
+    expect(context.adapter.applyCreates).toHaveLength(1);
+    expect(context.repository.metadataUpdates).toHaveLength(2);
+  });
+
+  it("does not apply metadata or persist paths after a failed upload", async () => {
+    const context = createContext();
+    const failure = new Error("upload unavailable");
+    context.adapter.uploadError = failure;
+
+    await expect(
+      context.gateway.pushCreate("entry-1", "operation-create"),
+    ).rejects.toBe(failure);
+    expect(context.adapter.applyCreates).toEqual([]);
+    expect(context.repository.metadataUpdates).toEqual([]);
+  });
+
+  it("applies the exact tombstone before removing only owned paths", async () => {
+    const context = createContext();
+    context.repository.media = [
+      {
+        ...media,
+        storagePath: "anonymous-user/2026/07/local.png",
+      },
     ];
-    const gateway = new SupabaseGateway({
-      adapter,
-      repository: createRepository(entry, localMedia),
-    });
+    context.adapter.deleteStoragePaths = [
+      "anonymous-user/2026/07/remote.png",
+      "other-user/2026/07/not-owned.png",
+    ];
     const deletedAt = "2026-07-29T12:00:00.000Z";
 
-    await gateway.pushDelete("entry-1", deletedAt, "operation-delete");
+    await context.gateway.pushDelete(
+      "entry-1",
+      deletedAt,
+      "operation-delete",
+    );
 
-    expect(adapter.updates).toEqual([
+    expect(context.adapter.applyDeletes).toEqual([
       {
-        table: "diary_entries",
-        values: {
-          deleted_at: deletedAt,
-          updated_at: deletedAt,
-          last_operation_id: "operation-delete",
-        },
-        filters: [
-          { operator: "eq", column: "id", value: "entry-1" },
-          {
-            operator: "eq",
-            column: "user_id",
-            value: "anonymous-user",
-          },
-        ],
+        operationId: "operation-delete",
+        entryId: "entry-1",
+        deletedAt,
       },
     ]);
-    expect(adapter.removals).toEqual([
+    expect(context.adapter.removals).toEqual([
       {
         bucket: "diary-images",
         paths: [
@@ -386,266 +437,196 @@ describe("SupabaseGateway pushes", () => {
         ],
       },
     ]);
-    expect(adapter.events.indexOf("update:diary_entries")).toBeLessThan(
-      adapter.events.findIndex((event) => event.startsWith("remove:")),
+    expect(context.events.indexOf("apply-delete:operation-delete")).toBeLessThan(
+      context.events.findIndex((event) => event.startsWith("remove:")),
     );
   });
 
-  it("upserts a complete preference snapshot with its exact timestamp", async () => {
-    const adapter = new FakeSupabaseAdapter();
-    const gateway = new SupabaseGateway({
-      adapter,
-      repository: createRepository(),
-    });
+  it("applies a complete preference snapshot with its exact timestamp", async () => {
+    const context = createContext();
     const preference: StoredPreference = {
       key: "background",
       value: { mode: "pinned", pinnedAssetId: "media-1" },
       updatedAt: "2026-07-30T10:11:12.000Z",
     };
 
-    await gateway.pushPreference(preference, "operation-preference");
+    await context.gateway.pushPreference(
+      preference,
+      "operation-preference",
+    );
 
-    expect(adapter.upserts).toEqual([
+    expect(context.adapter.applyPreferences).toEqual([
       {
-        table: "user_preferences",
-        onConflict: "user_id,key",
-        rows: [
-          {
-            user_id: "anonymous-user",
-            key: "background",
-            background_mode: "pinned",
-            pinned_background_asset_id: "media-1",
-            updated_at: "2026-07-30T10:11:12.000Z",
-            deleted_at: null,
-            last_operation_id: "operation-preference",
-          },
-        ],
+        operationId: "operation-preference",
+        mode: "pinned",
+        pinnedAssetId: "media-1",
+        updatedAt: "2026-07-30T10:11:12.000Z",
       },
     ]);
-  });
-
-  it("propagates failed uploads before writing metadata and failed tombstones before removal", async () => {
-    const uploadFailure = new Error("upload unavailable");
-    const uploadAdapter = new FakeSupabaseAdapter();
-    uploadAdapter.uploadError = uploadFailure;
-    const uploadGateway = new SupabaseGateway({
-      adapter: uploadAdapter,
-      repository: createRepository(),
-    });
-
-    await expect(
-      uploadGateway.pushCreate("entry-1", "operation-1"),
-    ).rejects.toBe(uploadFailure);
-    expect(uploadAdapter.upserts).toEqual([]);
-
-    const updateFailure = new Error("database unavailable");
-    const updateAdapter = new FakeSupabaseAdapter();
-    updateAdapter.updateError = updateFailure;
-    const updateGateway = new SupabaseGateway({
-      adapter: updateAdapter,
-      repository: createRepository(),
-    });
-
-    await expect(
-      updateGateway.pushDelete(
-        "entry-1",
-        "2026-07-30T12:00:00.000Z",
-        "operation-delete",
-      ),
-    ).rejects.toBe(updateFailure);
-    expect(updateAdapter.removals).toEqual([]);
   });
 });
 
-describe("SupabaseGateway pulls", () => {
-  it("filters every query to the user, includes tombstones, and privately downloads active media", async () => {
-    const adapter = new FakeSupabaseAdapter();
-    const privateBlob = new Blob(["private"], { type: "image/png" });
-    adapter.rows.set("diary_entries", [
-      {
-        id: "entry-deleted",
+describe("SupabaseGateway snapshot pulls", () => {
+  it("maps the complete snapshot, tombstones, private blobs, thumbnails, and server cursor", async () => {
+    const context = createContext();
+    const localBlob = new Blob(["private"], { type: "image/png" });
+    context.adapter.snapshot = {
+      entries: [
+        {
+          id: "entry-deleted",
+          user_id: "anonymous-user",
+          entry_date: "2026-07-29",
+          text: "Deleted",
+          created_at: "2026-07-29T08:00:00.000Z",
+          updated_at: "2026-07-30T10:03:00.000Z",
+          deleted_at: "2026-07-30T10:03:00.000Z",
+        },
+        {
+          id: "entry-active",
+          user_id: "anonymous-user",
+          entry_date: "2026-07-30",
+          text: "Active",
+          created_at: "2026-07-30T08:00:00.000Z",
+          updated_at: "2026-07-30T10:02:00.000Z",
+          deleted_at: null,
+        },
+      ],
+      media: [
+        {
+          id: "media-remote",
+          user_id: "anonymous-user",
+          entry_id: "entry-active",
+          storage_path: "anonymous-user/2026/07/media-remote.png",
+          mime_type: "image/png",
+          width: 640,
+          height: 480,
+          sort_order: 0,
+          created_at: "2026-07-30T08:00:00.000Z",
+          updated_at: "2026-07-30T08:00:00.000Z",
+          deleted_at: null,
+        },
+      ],
+      preference: {
         user_id: "anonymous-user",
-        entry_date: "2026-07-29",
-        text: "Deleted",
-        created_at: "2026-07-29T08:00:00.000Z",
-        updated_at: "2026-07-30T10:03:00.000Z",
-        deleted_at: "2026-07-30T10:03:00.000Z",
-      },
-      {
-        id: "entry-active",
-        user_id: "anonymous-user",
-        entry_date: "2026-07-30",
-        text: "Active",
-        created_at: "2026-07-30T08:00:00.000Z",
-        updated_at: "2026-07-30T10:02:00.000Z",
-        deleted_at: null,
-      },
-    ]);
-    adapter.rows.set("media_assets", [
-      {
-        id: "media-remote",
-        user_id: "anonymous-user",
-        entry_id: "entry-active",
-        storage_path: "anonymous-user/2026/07/media-remote.png",
-        mime_type: "image/png",
-        width: 640,
-        height: 480,
-        sort_order: 0,
-        created_at: "2026-07-30T08:00:00.000Z",
-        updated_at: "2026-07-30T10:02:00.000Z",
-        deleted_at: null,
-      },
-    ]);
-    adapter.rows.set("user_preferences", [
-      {
-        user_id: "anonymous-user",
-        key: "background",
         background_mode: "pinned",
         pinned_background_asset_id: "media-remote",
-        created_at: "2026-07-30T08:00:00.000Z",
         updated_at: "2026-07-30T10:04:00.000Z",
-        deleted_at: null,
       },
-    ]);
-    adapter.blobs.set(
+      cursor: "2026-08-01T00:00:00.000Z",
+    };
+    context.adapter.blobs.set(
       "anonymous-user/2026/07/media-remote.png",
-      privateBlob,
+      localBlob,
     );
-    const gateway = new SupabaseGateway({
-      adapter,
-      repository: createRepository(),
-    });
 
-    const result = await gateway.pullSince("2026-07-30T10:00:00.000Z");
+    const result = await context.gateway.pullSince(
+      "2026-07-31T00:00:00.000Z",
+    );
 
-    expect(
-      adapter.selects.every((request) =>
-        request.filters.some(
-          (filter) =>
-            filter.operator === "eq" &&
-            filter.column === "user_id" &&
-            filter.value === "anonymous-user",
-        ),
-      ),
-    ).toBe(true);
-    expect(adapter.selects[0]).toMatchObject({
-      table: "diary_entries",
-      filters: [
-        {
-          operator: "eq",
-          column: "user_id",
-          value: "anonymous-user",
-        },
-        {
-          operator: "gt",
-          column: "updated_at",
-          value: "2026-07-30T10:00:00.000Z",
-        },
-      ],
-      order: [
-        { column: "updated_at", ascending: true },
-        { column: "id", ascending: true },
-      ],
-    });
-    expect(adapter.downloads).toEqual([
+    expect(context.adapter.snapshotCursors).toEqual([
+      "2026-07-31T00:00:00.000Z",
+    ]);
+    expect(context.adapter.downloads).toEqual([
       {
         bucket: "diary-images",
         path: "anonymous-user/2026/07/media-remote.png",
       },
     ]);
-    expect(result).toEqual({
+    expect(context.createThumbnail).toHaveBeenCalledWith(
+      localBlob,
+      "image/png",
+    );
+    expect(result.cursor).toBe("2026-08-01T00:00:00.000Z");
+    expect(result.preferences).toEqual({
+      key: "background",
+      value: { mode: "pinned", pinnedAssetId: "media-remote" },
+      updatedAt: "2026-07-30T10:04:00.000Z",
+    });
+    expect(result.entries).toMatchObject([
+      {
+        id: "entry-active",
+        media: [
+          {
+            id: "media-remote",
+            localBlob,
+            thumbnailBlob: expect.any(Blob),
+          },
+        ],
+      },
+      {
+        id: "entry-deleted",
+        deletedAt: "2026-07-30T10:03:00.000Z",
+        media: [],
+      },
+    ]);
+    expect(
+      await result.entries[0]?.media[0]?.thumbnailBlob?.text(),
+    ).toBe("private-thumbnail");
+  });
+
+  it("returns the stable server cursor from an empty snapshot", async () => {
+    const context = createContext();
+    context.adapter.snapshot.cursor = "server-high-water";
+
+    await expect(context.gateway.pullSince("old-cursor")).resolves.toEqual({
+      entries: [],
+      cursor: "server-high-water",
+    });
+  });
+
+  it("propagates snapshot and private download errors", async () => {
+    const snapshotContext = createContext();
+    const snapshotFailure = new Error("snapshot unavailable");
+    snapshotContext.adapter.snapshotError = snapshotFailure;
+
+    await expect(snapshotContext.gateway.pullSince()).rejects.toBe(
+      snapshotFailure,
+    );
+
+    const downloadContext = createContext();
+    const downloadFailure = new Error("private download unavailable");
+    downloadContext.adapter.downloadError = downloadFailure;
+    downloadContext.adapter.snapshot = {
       entries: [
         {
           id: "entry-active",
-          userId: "anonymous-user",
-          entryDate: "2026-07-30",
+          user_id: "anonymous-user",
+          entry_date: "2026-07-30",
           text: "Active",
-          createdAt: "2026-07-30T08:00:00.000Z",
-          updatedAt: "2026-07-30T10:02:00.000Z",
-          media: [
-            {
-              id: "media-remote",
-              entryId: "entry-active",
-              userId: "anonymous-user",
-              storagePath: "anonymous-user/2026/07/media-remote.png",
-              mimeType: "image/png",
-              width: 640,
-              height: 480,
-              sortOrder: 0,
-              createdAt: "2026-07-30T08:00:00.000Z",
-              localBlob: privateBlob,
-            },
-          ],
-          syncState: "synced",
-        },
-        {
-          id: "entry-deleted",
-          userId: "anonymous-user",
-          entryDate: "2026-07-29",
-          text: "Deleted",
-          createdAt: "2026-07-29T08:00:00.000Z",
-          updatedAt: "2026-07-30T10:03:00.000Z",
-          deletedAt: "2026-07-30T10:03:00.000Z",
-          media: [],
-          syncState: "synced",
+          created_at: "2026-07-30T08:00:00.000Z",
+          updated_at: "2026-07-30T10:02:00.000Z",
+          deleted_at: null,
         },
       ],
-      preferences: {
-        key: "background",
-        value: { mode: "pinned", pinnedAssetId: "media-remote" },
-        updatedAt: "2026-07-30T10:04:00.000Z",
-      },
-      cursor: "2026-07-30T10:04:00.000Z",
-    });
+      media: [
+        {
+          id: "media-remote",
+          user_id: "anonymous-user",
+          entry_id: "entry-active",
+          storage_path: "anonymous-user/2026/07/media-remote.png",
+          mime_type: "image/png",
+          width: null,
+          height: null,
+          sort_order: 0,
+          created_at: "2026-07-30T08:00:00.000Z",
+          updated_at: "2026-07-30T08:00:00.000Z",
+          deleted_at: null,
+        },
+      ],
+      preference: null,
+      cursor: "server-high-water",
+    };
+
+    await expect(downloadContext.gateway.pullSince()).rejects.toBe(
+      downloadFailure,
+    );
   });
 
-  it("preserves an existing cursor when no rows changed", async () => {
-    const gateway = new SupabaseGateway({
-      adapter: new FakeSupabaseAdapter(),
-      repository: createRepository(),
-    });
+  it("falls back to the downloaded blob when browser thumbnail APIs are unavailable", async () => {
+    const downloaded = new Blob(["not-decodable"], { type: "image/png" });
 
     await expect(
-      gateway.pullSince("2026-07-30T10:00:00.000Z"),
-    ).resolves.toEqual({
-      entries: [],
-      cursor: "2026-07-30T10:00:00.000Z",
-    });
-  });
-
-  it("propagates private download errors", async () => {
-    const failure = new Error("private download unavailable");
-    const adapter = new FakeSupabaseAdapter();
-    adapter.downloadError = failure;
-    adapter.rows.set("diary_entries", [
-      {
-        id: "entry-active",
-        user_id: "anonymous-user",
-        entry_date: "2026-07-30",
-        text: "Active",
-        created_at: "2026-07-30T08:00:00.000Z",
-        updated_at: "2026-07-30T10:02:00.000Z",
-        deleted_at: null,
-      },
-    ]);
-    adapter.rows.set("media_assets", [
-      {
-        id: "media-remote",
-        user_id: "anonymous-user",
-        entry_id: "entry-active",
-        storage_path: "anonymous-user/2026/07/media-remote.png",
-        mime_type: "image/png",
-        sort_order: 0,
-        created_at: "2026-07-30T08:00:00.000Z",
-        updated_at: "2026-07-30T10:02:00.000Z",
-        deleted_at: null,
-      },
-    ]);
-    const gateway = new SupabaseGateway({
-      adapter,
-      repository: createRepository(),
-    });
-
-    await expect(gateway.pullSince()).rejects.toBe(failure);
+      createBrowserThumbnail(downloaded, "image/png"),
+    ).resolves.toBe(downloaded);
   });
 });
