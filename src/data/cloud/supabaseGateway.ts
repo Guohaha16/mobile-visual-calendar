@@ -68,6 +68,22 @@ export interface SupabaseOperationResult {
   alreadyApplied: boolean;
 }
 
+export type SupabaseOperationKind =
+  | "create-entry"
+  | "delete-entry"
+  | "upsert-preference";
+
+export type SupabaseOperationStatus =
+  | "missing"
+  | "pending"
+  | "completed";
+
+export interface SupabaseOperationLookup {
+  operationId: string;
+  operationKind: SupabaseOperationKind;
+  entityId: string;
+}
+
 export interface SupabaseEntrySnapshotRow extends SupabaseEntryPayload {
   user_id: string;
 }
@@ -93,7 +109,9 @@ export interface SupabaseSnapshot {
 export interface SupabaseGatewayAdapter {
   getSessionUser(): Promise<string | undefined>;
   signInAnonymously(): Promise<string | undefined>;
-  isOperationCompleted(operationId: string): Promise<boolean>;
+  getOperationStatus(
+    request: SupabaseOperationLookup,
+  ): Promise<SupabaseOperationStatus>;
   upload(
     bucket: string,
     path: string,
@@ -116,7 +134,10 @@ export interface SupabaseGatewayAdapter {
 
 export type SupabaseGatewayRepository = Pick<
   DiaryRepository,
-  "getEntry" | "listMediaForEntry" | "updateMediaStoragePaths"
+  | "getEntry"
+  | "getMedia"
+  | "listMediaForEntry"
+  | "updateMediaStoragePaths"
 >;
 
 export type ThumbnailCreator = (
@@ -189,6 +210,19 @@ const parseOperationResult = (
   return { alreadyApplied: result.already_applied };
 };
 
+const parseOperationStatus = (
+  value: unknown,
+): SupabaseOperationStatus => {
+  if (
+    value !== "missing" &&
+    value !== "pending" &&
+    value !== "completed"
+  ) {
+    throw new Error("Operation lookup RPC returned an invalid status");
+  }
+  return value;
+};
+
 const parseDeleteResult = (value: unknown): SupabaseApplyDeleteResult => {
   const result = requireObject(value, "Delete");
   if (
@@ -248,14 +282,13 @@ export const createSupabaseGatewayAdapter = (
     return data.user?.id;
   },
 
-  async isOperationCompleted(operationId) {
-    const data = await rpc(client, "visual_diary_operation_completed", {
-      p_operation_id: operationId,
+  async getOperationStatus(request) {
+    const data = await rpc(client, "visual_diary_get_operation_status", {
+      p_operation_id: request.operationId,
+      p_operation_kind: request.operationKind,
+      p_entity_id: request.entityId,
     });
-    if (typeof data !== "boolean") {
-      throw new Error("Operation lookup RPC returned an invalid result");
-    }
-    return data;
+    return parseOperationStatus(data);
   },
 
   async upload(bucket, path, body, options) {
@@ -467,14 +500,60 @@ export const createBrowserThumbnail: ThumbnailCreator = async (
   }
 };
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const TIMESTAMP_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+const IMAGE_MIME_PATTERN = /^image\/[a-z0-9][a-z0-9.+-]*$/;
+const STORAGE_FILENAME_PATTERN =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.[a-z0-9]+$/;
+
+const isCanonicalUuid = (value: string): boolean =>
+  UUID_PATTERN.test(value);
+
+const requireUuid = (value: string, label: string): void => {
+  if (!isCanonicalUuid(value)) {
+    throw new TypeError(`Invalid ${label} UUID: ${value}`);
+  }
+};
+
 const isValidUserId = (value: string | undefined): value is string =>
-  value !== undefined &&
-  value.length > 0 &&
-  value.trim() === value &&
-  !value.includes("/");
+  value !== undefined && isCanonicalUuid(value);
+
+const isValidCalendarDate = (
+  year: number,
+  month: number,
+  day: number,
+): boolean => {
+  if (
+    year < 1 ||
+    month < 1 ||
+    month > 12 ||
+    day < 1
+  ) {
+    return false;
+  }
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day);
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+};
 
 const requireTimestamp = (value: string, label: string): void => {
-  if (!Number.isFinite(Date.parse(value))) {
+  const match = TIMESTAMP_PATTERN.exec(value);
+  if (
+    match === null ||
+    !isValidCalendarDate(
+      Number(match[1]),
+      Number(match[2]),
+      Number(match[3]),
+    ) ||
+    !Number.isFinite(Date.parse(value))
+  ) {
     throw new TypeError(`Invalid ${label} timestamp: ${value}`);
   }
 };
@@ -486,11 +565,46 @@ const requireLocalDate = (
   if (match === null) {
     throw new TypeError(`Invalid diary entry date: ${value}`);
   }
-  const [, year, month] = match;
-  if (year === undefined || month === undefined) {
+  const [, year, month, day] = match;
+  if (
+    year === undefined ||
+    month === undefined ||
+    day === undefined ||
+    !isValidCalendarDate(Number(year), Number(month), Number(day))
+  ) {
     throw new TypeError(`Invalid diary entry date: ${value}`);
   }
   return { year, month };
+};
+
+const requireDimension = (
+  value: number | undefined,
+  label: string,
+): void => {
+  if (
+    value !== undefined &&
+    (!Number.isInteger(value) || value <= 0)
+  ) {
+    throw new TypeError(`Invalid media ${label}: ${value}`);
+  }
+};
+
+const requireDimensionPair = (asset: MediaAsset): void => {
+  if ((asset.width === undefined) !== (asset.height === undefined)) {
+    throw new TypeError("Media width and height must be provided together");
+  }
+};
+
+const requireSortOrder = (value: number): void => {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new TypeError(`Invalid media sort order: ${value}`);
+  }
+};
+
+const requireImageMimeType = (value: string): void => {
+  if (!IMAGE_MIME_PATTERN.test(value)) {
+    throw new TypeError(`Invalid image MIME type: ${value}`);
+  }
 };
 
 const extensionForMimeType = (mimeType: string): string => {
@@ -540,9 +654,19 @@ const compareMediaRows = (
   left.created_at.localeCompare(right.created_at) ||
   left.id.localeCompare(right.id);
 
-const ownStoragePath = (userId: string, path: string): boolean =>
-  path.startsWith(`${userId}/`) &&
-  !path.split("/").some((part) => part === "..");
+const ownStoragePath = (userId: string, path: string): boolean => {
+  const parts = path.split("/");
+  if (parts.length !== 4) {
+    return false;
+  }
+  const [ownerId, year, month, filename] = parts;
+  return (
+    ownerId === userId &&
+    /^\d{4}$/.test(year ?? "") &&
+    /^(0[1-9]|1[0-2])$/.test(month ?? "") &&
+    STORAGE_FILENAME_PATTERN.test(filename ?? "")
+  );
+};
 
 const optionalNumber = (value: number | null): number | undefined =>
   value === null ? undefined : value;
@@ -575,6 +699,7 @@ const mapPreference = (
 
 export class SupabaseGateway implements CloudGateway {
   private sessionPromise?: Promise<{ userId: string }>;
+  private establishedUserId?: string;
 
   constructor(private readonly dependencies: SupabaseGatewayDependencies) {}
 
@@ -588,17 +713,25 @@ export class SupabaseGateway implements CloudGateway {
     if (this.sessionPromise === undefined) {
       const pending = this.resolveSession(this.dependencies.adapter);
       this.sessionPromise = pending;
-      void pending.catch(() => {
-        if (this.sessionPromise === pending) {
-          this.sessionPromise = undefined;
-        }
-      });
+      void pending.then(
+        () => {
+          if (this.sessionPromise === pending) {
+            this.sessionPromise = undefined;
+          }
+        },
+        () => {
+          if (this.sessionPromise === pending) {
+            this.sessionPromise = undefined;
+          }
+        },
+      );
     }
 
     return this.sessionPromise;
   }
 
   async pushCreate(entryId: string, operationId: string): Promise<void> {
+    requireUuid(entryId, "entry");
     const { userId } = await this.ensureSession();
     const entry = await this.dependencies.repository.getEntry(entryId);
     if (entry === undefined) {
@@ -606,6 +739,14 @@ export class SupabaseGateway implements CloudGateway {
     }
     if (entry.userId !== userId) {
       throw new Error(`Diary entry is not owned by session user: ${entryId}`);
+    }
+    requireUuid(entry.id, "entry");
+    requireUuid(entry.userId, "entry user");
+    requireLocalDate(entry.entryDate);
+    requireTimestamp(entry.createdAt, "entry creation");
+    requireTimestamp(entry.updatedAt, "entry update");
+    if (entry.deletedAt !== undefined) {
+      requireTimestamp(entry.deletedAt, "entry deletion");
     }
 
     const media = (
@@ -618,7 +759,30 @@ export class SupabaseGateway implements CloudGateway {
       if (asset.userId !== userId || asset.entryId !== entry.id) {
         throw new Error(`Media asset is not owned by diary entry: ${asset.id}`);
       }
+      requireUuid(asset.id, "media");
+      requireUuid(asset.entryId, "media entry");
+      requireUuid(asset.userId, "media user");
+      requireTimestamp(asset.createdAt, "media creation");
+      requireDimension(asset.width, "width");
+      requireDimension(asset.height, "height");
+      requireDimensionPair(asset);
+      requireSortOrder(asset.sortOrder);
+      requireImageMimeType(asset.mimeType);
       const storagePath = storagePathFor(userId, entry.entryDate, asset);
+      if (
+        asset.storagePath !== undefined &&
+        asset.storagePath !== storagePath
+      ) {
+        throw new TypeError(
+          `Media asset has an invalid cloud storage path: ${asset.id}`,
+        );
+      }
+      if (
+        asset.localBlob === undefined &&
+        asset.storagePath !== storagePath
+      ) {
+        throw new Error(`Media asset has no uploadable blob: ${asset.id}`);
+      }
       mediaPayload.push({
         id: asset.id,
         entry_id: entry.id,
@@ -631,14 +795,24 @@ export class SupabaseGateway implements CloudGateway {
         updated_at: entry.updatedAt,
         deleted_at: null,
       });
-      if (asset.storagePath !== storagePath) {
+      if (
+        asset.storagePath !== storagePath ||
+        asset.localBlob !== undefined
+      ) {
         storageUpdates.push({ id: asset.id, storagePath });
       }
     }
 
     const adapter = this.requireAdapter();
-    const completed = await adapter.isOperationCompleted(operationId);
-    if (!completed) {
+    const operationStatus = await adapter.getOperationStatus({
+      operationId,
+      operationKind: "create-entry",
+      entityId: entry.id,
+    });
+    if (operationStatus === "pending") {
+      throw new Error("Operation ledger contains an incomplete create");
+    }
+    if (operationStatus === "missing") {
       for (let index = 0; index < media.length; index += 1) {
         const asset = media[index];
         const payload = mediaPayload[index];
@@ -683,9 +857,18 @@ export class SupabaseGateway implements CloudGateway {
     deletedAt: string,
     operationId: string,
   ): Promise<void> {
+    requireUuid(entryId, "entry");
     requireTimestamp(deletedAt, "deletion");
     const { userId } = await this.ensureSession();
     const adapter = this.requireAdapter();
+    const operationStatus = await adapter.getOperationStatus({
+      operationId,
+      operationKind: "delete-entry",
+      entityId: entryId,
+    });
+    if (operationStatus === "pending") {
+      throw new Error("Operation ledger contains an incomplete delete");
+    }
     const result = await adapter.applyDelete({
       operationId,
       entryId,
@@ -721,9 +904,25 @@ export class SupabaseGateway implements CloudGateway {
     operationId: string,
   ): Promise<void> {
     requireTimestamp(preference.updatedAt, "preference");
+    if (preference.value.mode === "pinned") {
+      requireUuid(preference.value.pinnedAssetId, "pinned media");
+    }
     await this.ensureSession();
 
-    await this.requireAdapter().applyPreference({
+    const adapter = this.requireAdapter();
+    const operationStatus = await adapter.getOperationStatus({
+      operationId,
+      operationKind: "upsert-preference",
+      entityId: preference.key,
+    });
+    if (operationStatus === "pending") {
+      throw new Error("Operation ledger contains an incomplete preference");
+    }
+    if (operationStatus === "completed") {
+      return;
+    }
+
+    await adapter.applyPreference({
       operationId,
       mode: preference.value.mode,
       ...(preference.value.mode === "pinned"
@@ -766,13 +965,26 @@ export class SupabaseGateway implements CloudGateway {
         throw new Error(`Remote media path is not owned by user: ${row.id}`);
       }
 
-      const localBlob = await adapter.download(
-        STORAGE_BUCKET,
-        row.storage_path,
-      );
-      const thumbnailBlob = await (
-        this.dependencies.createThumbnail ?? createBrowserThumbnail
-      )(localBlob, row.mime_type);
+      const localAsset =
+        await this.dependencies.repository.getMedia(row.id);
+      let thumbnailBlob =
+        localAsset?.userId === userId &&
+        localAsset.entryId === row.entry_id
+          ? localAsset.thumbnailBlob
+          : undefined;
+      if (thumbnailBlob === undefined) {
+        try {
+          const downloaded = await adapter.download(
+            STORAGE_BUCKET,
+            row.storage_path,
+          );
+          thumbnailBlob = await (
+            this.dependencies.createThumbnail ?? createBrowserThumbnail
+          )(downloaded, row.mime_type);
+        } catch {
+          // Preserve the snapshot even when one private object is missing.
+        }
+      }
       const mapped: MediaAsset = {
         id: row.id,
         entryId: row.entry_id,
@@ -783,8 +995,7 @@ export class SupabaseGateway implements CloudGateway {
         height: optionalNumber(row.height),
         sortOrder: row.sort_order,
         createdAt: row.created_at,
-        localBlob,
-        thumbnailBlob,
+        ...(thumbnailBlob === undefined ? {} : { thumbnailBlob }),
       };
       const entryMedia = mediaByEntry.get(row.entry_id) ?? [];
       entryMedia.push(mapped);
@@ -819,7 +1030,25 @@ export class SupabaseGateway implements CloudGateway {
   ): Promise<{ userId: string }> {
     const currentUserId = await adapter.getSessionUser();
     if (isValidUserId(currentUserId)) {
+      if (
+        this.establishedUserId !== undefined &&
+        currentUserId !== this.establishedUserId
+      ) {
+        throw new CloudSessionPausedError(
+          "Supabase session identity changed",
+        );
+      }
+      this.establishedUserId = currentUserId;
       return { userId: currentUserId };
+    }
+    if (currentUserId !== undefined) {
+      throw new CloudSessionPausedError(
+        "Supabase session has an invalid identity",
+      );
+    }
+
+    if (this.establishedUserId !== undefined) {
+      throw new CloudSessionPausedError("Supabase session was lost");
     }
 
     const anonymousUserId = await adapter.signInAnonymously();
@@ -828,6 +1057,7 @@ export class SupabaseGateway implements CloudGateway {
         "Anonymous Supabase session is unavailable",
       );
     }
+    this.establishedUserId = anonymousUserId;
     return { userId: anonymousUserId };
   }
 

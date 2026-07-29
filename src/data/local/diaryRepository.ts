@@ -241,7 +241,12 @@ export class DiaryRepository {
         ) {
           throw new Error(`Media asset not found: ${update.id}`);
         }
-        persisted.push({ ...asset, storagePath: update.storagePath });
+        const cloudBackedAsset = {
+          ...asset,
+          storagePath: update.storagePath,
+        };
+        delete cloudBackedAsset.localBlob;
+        persisted.push(cloudBackedAsset);
       }
 
       await this.database.media.bulkPut(persisted);

@@ -449,7 +449,7 @@ describe("diary repository", () => {
     expect(await repository.getBackgroundPreference()).toEqual(preference);
   });
 
-  it("atomically persists owned cloud storage paths while retaining local blobs", async () => {
+  it("atomically persists cloud paths, clears originals, and retains thumbnails", async () => {
     const originalBlob = createPersistableBlob("offline original");
     const originalThumbnail = createPersistableBlob("offline thumbnail");
     const saved = await repository.createEntry({
@@ -497,7 +497,7 @@ describe("diary repository", () => {
 
     const persisted = await repository.getMedia(ownedMedia.id);
     expect(persisted?.storagePath).toBe("user-1/2026/07/owned.png");
-    expect(await persisted?.localBlob?.text()).toBe("offline original");
+    expect(persisted?.localBlob).toBeUndefined();
     expect(await persisted?.thumbnailBlob?.text()).toBe("offline thumbnail");
     expect(await repository.listOutbox()).toHaveLength(outboxCount);
   });
