@@ -1,3 +1,5 @@
+import { AppShell } from "./AppShell";
+
 export function App() {
-  return <main aria-label="Visual diary" />;
+  return <AppShell />;
 }

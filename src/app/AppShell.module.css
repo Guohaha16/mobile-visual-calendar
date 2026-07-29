@@ -1,0 +1,60 @@
+.shell {
+  position: relative;
+  min-height: 100dvh;
+  overflow: hidden;
+  color: var(--color-ink);
+  background: var(--color-paper);
+  isolation: isolate;
+}
+
+.shell::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  background: #f5eee6;
+  content: "";
+}
+
+.main {
+  min-height: 100dvh;
+  padding: max(22px, env(safe-area-inset-top)) 18px 104px;
+}
+
+.view {
+  display: grid;
+  width: min(100%, 1120px);
+  min-height: calc(100dvh - 126px);
+  margin-inline: auto;
+  align-content: start;
+}
+
+.year {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 2.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 0.95;
+}
+
+.calendarHint {
+  width: min(100%, 560px);
+  aspect-ratio: 0.72;
+  margin: 28px auto 0;
+  background: rgb(255 252 247 / 62%);
+  border: 1px solid rgb(255 255 255 / 76%);
+  box-shadow: var(--shadow-glass);
+  backdrop-filter: blur(var(--blur-glass));
+  -webkit-backdrop-filter: blur(var(--blur-glass));
+}
+
+@media (min-width: 760px) {
+  .main {
+    padding-inline: 40px;
+  }
+
+  .year {
+    font-size: 5.5rem;
+  }
+}
