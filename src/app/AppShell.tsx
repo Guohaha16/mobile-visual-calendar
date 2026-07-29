@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 
 import { toLocalDateKey } from "../domain/date";
 import { BottomNav } from "../components/BottomNav";
@@ -9,6 +10,8 @@ import styles from "./AppShell.module.css";
 
 export function AppShell() {
   const {
+    isBackgroundPickerOpen,
+    isDiaryOpen,
     navigate,
     openDiary,
     route,
@@ -65,6 +68,16 @@ export function AppShell() {
           navigate({ view: "shelf" });
         }}
       />
+      {createPortal(
+        <div
+          aria-hidden="true"
+          className={styles.sheetLayer}
+          data-background-open={isBackgroundPickerOpen}
+          data-diary-open={isDiaryOpen}
+          data-testid="sheet-layer"
+        />,
+        document.body,
+      )}
     </div>
   );
 }

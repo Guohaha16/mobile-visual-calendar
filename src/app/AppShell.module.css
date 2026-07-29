@@ -49,6 +49,13 @@
   -webkit-backdrop-filter: blur(var(--blur-glass));
 }
 
+.sheetLayer {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  pointer-events: none;
+}
+
 @media (min-width: 760px) {
   .main {
     padding-inline: 40px;
