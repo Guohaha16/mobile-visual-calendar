@@ -1,0 +1,21 @@
+:root {
+  --color-paper: #f7f1e7;
+  --color-coral: #df6f61;
+  --color-sage: #8ca38a;
+  --color-fog-blue: #9fb8c6;
+  --color-mustard: #d7ad4c;
+  --color-rose: #c98e9d;
+  --color-ink: #34302e;
+  --color-glass: rgb(255 252 247 / 74%);
+  --color-glass-border: rgb(255 255 255 / 72%);
+  --shadow-glass: 0 12px 36px rgb(72 57 48 / 14%);
+  --blur-glass: 22px;
+  --radius-small: 4px;
+  --radius-medium: 8px;
+  --radius-large: 20px;
+  --radius-round: 999px;
+  --motion-duration-control: 160ms;
+  --motion-duration-sheet: 260ms;
+  --motion-duration-book: 380ms;
+  --motion-duration-shelf: 800ms;
+}
