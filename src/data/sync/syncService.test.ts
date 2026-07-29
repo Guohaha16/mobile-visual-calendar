@@ -121,9 +121,20 @@ class FakeGateway implements CloudGateway {
     return { userId: "user-1" };
   }
 
-  async pushCreate(): Promise<void> {}
+  async pushCreate(entryId: string, operationId: string): Promise<void> {
+    void entryId;
+    void operationId;
+  }
 
-  async pushDelete(): Promise<void> {}
+  async pushDelete(
+    entryId: string,
+    deletedAt: string,
+    operationId: string,
+  ): Promise<void> {
+    void entryId;
+    void deletedAt;
+    void operationId;
+  }
 
   async pullSince(cursor?: string): Promise<CloudPullResult> {
     this.pullCalls.push(cursor);

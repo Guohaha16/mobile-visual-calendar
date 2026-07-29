@@ -105,7 +105,10 @@ export class OutboxProcessor {
   private async push(operation: OutboxOperation): Promise<void> {
     switch (operation.kind) {
       case "create-entry":
-        await this.dependencies.gateway.pushCreate(operation.entityId);
+        await this.dependencies.gateway.pushCreate(
+          operation.entityId,
+          operation.id,
+        );
         return;
       case "delete-entry":
         if (operation.deletedAt === undefined) {
@@ -116,6 +119,7 @@ export class OutboxProcessor {
         await this.dependencies.gateway.pushDelete(
           operation.entityId,
           operation.deletedAt,
+          operation.id,
         );
         return;
       case "upsert-preference":
@@ -145,7 +149,11 @@ export class OutboxProcessor {
       value,
       updatedAt: operation.createdAt,
     };
-    await pushPreference.call(this.dependencies.gateway, preference);
+    await pushPreference.call(
+      this.dependencies.gateway,
+      preference,
+      operation.id,
+    );
   }
 
   private async markSucceeded(operation: OutboxOperation): Promise<void> {
@@ -165,7 +173,7 @@ export class OutboxProcessor {
       state: "failed",
       attempts,
       nextAttemptAt: new Date(
-        now + retryDelay(operation.attempts),
+        now + retryDelay(attempts),
       ).toISOString(),
     });
 
