@@ -62,6 +62,14 @@ const assertLocalDateKey = (value: string): void => {
   }
 };
 
+const timestampMillis = (timestamp: string, label: string): number => {
+  const milliseconds = Date.parse(timestamp);
+  if (!Number.isFinite(milliseconds)) {
+    throw new TypeError(`Invalid ${label} timestamp: ${timestamp}`);
+  }
+  return milliseconds;
+};
+
 const yearKey = (year: number): string => {
   if (!Number.isInteger(year) || year < 1 || year > 9999) {
     throw new RangeError(`Invalid diary year: ${year}`);
@@ -275,7 +283,13 @@ export class DiaryRepository {
   async getBackgroundPreference(): Promise<
     BackgroundPreference | undefined
   > {
-    return (await this.database.preferences.get("background"))?.value;
+    return (await this.getStoredBackgroundPreference())?.value;
+  }
+
+  async getStoredBackgroundPreference(): Promise<
+    StoredPreference | undefined
+  > {
+    return this.database.preferences.get("background");
   }
 
   async setBackgroundPreference(
@@ -296,11 +310,23 @@ export class DiaryRepository {
       this.database.outbox,
       async () => {
         await this.database.preferences.put(preference);
+        const operationCreatedAt =
+          await this.allocateOutboxCreatedAt(preferenceTimestamp);
+        const pendingPreferenceOperations = await this.database.outbox
+          .where("kind")
+          .equals("upsert-preference")
+          .filter((operation) => operation.state !== "syncing")
+          .toArray();
+        if (pendingPreferenceOperations.length > 0) {
+          await this.database.outbox.bulkDelete(
+            pendingPreferenceOperations.map((operation) => operation.id),
+          );
+        }
         await this.database.outbox.add({
           id: operationId,
           kind: "upsert-preference",
           entityId: preference.key,
-          createdAt: await this.allocateOutboxCreatedAt(preferenceTimestamp),
+          createdAt: operationCreatedAt,
           attempts: 0,
           state: "waiting",
         });
@@ -319,6 +345,92 @@ export class DiaryRepository {
     id: string,
   ): Promise<OutboxOperation | undefined> {
     return this.database.outbox.get(id);
+  }
+
+  async beginOutboxOperation(
+    id: string,
+    now: string,
+    leaseUntil: string,
+  ): Promise<OutboxOperation | undefined> {
+    const nowMillis = timestampMillis(now, "now");
+    const leaseUntilMillis = timestampMillis(leaseUntil, "lease");
+    if (leaseUntilMillis <= nowMillis) {
+      throw new RangeError("Lease must end after now");
+    }
+
+    return this.database.transaction(
+      "rw",
+      this.database.outbox,
+      this.database.entries,
+      async () => {
+        const operation = await this.database.outbox.get(id);
+        if (operation === undefined) {
+          return undefined;
+        }
+
+        if (
+          (operation.state === "failed" || operation.state === "syncing") &&
+          operation.nextAttemptAt !== undefined &&
+          timestampMillis(operation.nextAttemptAt, "next attempt") > nowMillis
+        ) {
+          return undefined;
+        }
+
+        await this.database.outbox.update(id, {
+          state: "syncing",
+          nextAttemptAt: leaseUntil,
+        });
+        await this.updateAssociatedEntrySyncState(operation, "syncing");
+        return this.database.outbox.get(id);
+      },
+    );
+  }
+
+  async completeOutboxOperation(id: string): Promise<void> {
+    await this.database.transaction(
+      "rw",
+      this.database.outbox,
+      this.database.entries,
+      async () => {
+        const operation = await this.database.outbox.get(id);
+        if (operation === undefined) {
+          return;
+        }
+
+        await this.updateAssociatedEntrySyncState(operation, "synced");
+        await this.database.outbox.delete(id);
+      },
+    );
+  }
+
+  async failOutboxOperation(
+    id: string,
+    attempts: number,
+    nextAttemptAt: string,
+  ): Promise<void> {
+    timestampMillis(nextAttemptAt, "next attempt");
+    if (!Number.isInteger(attempts) || attempts < 0) {
+      throw new RangeError(`Invalid outbox attempt count: ${attempts}`);
+    }
+
+    await this.database.transaction(
+      "rw",
+      this.database.outbox,
+      this.database.entries,
+      async () => {
+        const operation = await this.database.outbox.get(id);
+        if (operation === undefined) {
+          return;
+        }
+
+        await this.database.outbox.update(id, {
+          state: "failed",
+          attempts,
+          nextAttemptAt,
+        });
+        await this.updateAssociatedEntrySyncState(operation, "failed");
+      },
+    );
   }
 
   async updateOutboxOperation(
@@ -396,10 +508,7 @@ export class DiaryRepository {
   private async allocateOutboxCreatedAt(
     clockTimestamp: string,
   ): Promise<string> {
-    const clockMillis = Date.parse(clockTimestamp);
-    if (!Number.isFinite(clockMillis)) {
-      throw new TypeError(`Invalid clock timestamp: ${clockTimestamp}`);
-    }
+    const clockMillis = timestampMillis(clockTimestamp, "clock");
 
     const latestOperation = await this.database.outbox
       .orderBy("createdAt")
@@ -408,16 +517,29 @@ export class DiaryRepository {
       return new Date(clockMillis).toISOString();
     }
 
-    const latestMillis = Date.parse(latestOperation.createdAt);
-    if (!Number.isFinite(latestMillis)) {
-      throw new TypeError(
-        `Invalid persisted outbox timestamp: ${latestOperation.createdAt}`,
-      );
-    }
+    const latestMillis = timestampMillis(
+      latestOperation.createdAt,
+      "persisted outbox",
+    );
 
     return new Date(
       clockMillis <= latestMillis ? latestMillis + 1 : clockMillis,
     ).toISOString();
+  }
+
+  private async updateAssociatedEntrySyncState(
+    operation: OutboxOperation,
+    syncState: DiaryEntry["syncState"],
+  ): Promise<void> {
+    if (operation.kind === "upsert-preference") {
+      return;
+    }
+
+    const entry = await this.database.entries.get(operation.entityId);
+    if (entry === undefined || entry.userId !== this.dependencies.userId) {
+      throw new Error(`Diary entry not found: ${operation.entityId}`);
+    }
+    await this.database.entries.update(entry.id, { syncState });
   }
 
   private notifyMutation(): void {

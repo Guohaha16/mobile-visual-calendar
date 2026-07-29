@@ -61,7 +61,15 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await Promise.all(databases.map((testDatabase) => testDatabase.delete()));
+  const uniqueDatabases = new Map(
+    databases.map((testDatabase) => [testDatabase.name, testDatabase]),
+  );
+  for (const testDatabase of databases) {
+    testDatabase.close();
+  }
+  await Promise.all(
+    [...uniqueDatabases.values()].map((testDatabase) => testDatabase.delete()),
+  );
 });
 
 describe("visual diary database", () => {
@@ -478,6 +486,333 @@ describe("diary repository", () => {
 
     await repository.removeOutboxOperation(createOperation.id);
     expect(await repository.getOutboxOperation(createOperation.id)).toBeUndefined();
+  });
+
+  it("allows only one concurrent claim across repository instances", async () => {
+    const peerDatabase = createTestDatabase();
+    const peerRepository = createDiaryRepository(peerDatabase, {
+      userId: "user-1",
+      clock: makeClock("2026-07-29T10:00:00.000Z"),
+      generateId: makeIdGenerator(),
+    });
+    const saved = await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Claim once",
+      media: [],
+    });
+    const operation = (await repository.listOutbox())[0];
+    if (operation === undefined) {
+      throw new Error("Expected an outbox operation");
+    }
+
+    const claims = await Promise.all([
+      repository.beginOutboxOperation(
+        operation.id,
+        "2026-07-29T10:00:00.000Z",
+        "2026-07-29T10:01:00.000Z",
+      ),
+      peerRepository.beginOutboxOperation(
+        operation.id,
+        "2026-07-29T10:00:00.000Z",
+        "2026-07-29T10:01:00.000Z",
+      ),
+    ]);
+
+    expect(claims.filter((claim) => claim !== undefined)).toHaveLength(1);
+    expect(await repository.getOutboxOperation(operation.id)).toMatchObject({
+      state: "syncing",
+      nextAttemptAt: "2026-07-29T10:01:00.000Z",
+    });
+    expect(await repository.getEntry(saved.id)).toMatchObject({
+      syncState: "syncing",
+    });
+  });
+
+  it("blocks an active lease and reclaims it when due", async () => {
+    const saved = await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Leased",
+      media: [],
+    });
+    const operation = (await repository.listOutbox())[0];
+    if (operation === undefined) {
+      throw new Error("Expected an outbox operation");
+    }
+
+    await expect(
+      repository.beginOutboxOperation(
+        operation.id,
+        "2026-07-29T10:00:00.000Z",
+        "2026-07-29T10:01:00.000Z",
+      ),
+    ).resolves.toMatchObject({ state: "syncing" });
+    await expect(
+      repository.beginOutboxOperation(
+        operation.id,
+        "2026-07-29T10:00:59.999Z",
+        "2026-07-29T10:02:00.000Z",
+      ),
+    ).resolves.toBeUndefined();
+    await expect(
+      repository.beginOutboxOperation(
+        operation.id,
+        "2026-07-29T10:01:00.000Z",
+        "2026-07-29T10:02:00.000Z",
+      ),
+    ).resolves.toMatchObject({
+      id: operation.id,
+      state: "syncing",
+      nextAttemptAt: "2026-07-29T10:02:00.000Z",
+    });
+    expect(await repository.getEntry(saved.id)).toMatchObject({
+      syncState: "syncing",
+    });
+  });
+
+  it("atomically begins, fails, reclaims, and completes entry operations", async () => {
+    const saved = await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Transition",
+      media: [],
+    });
+    const operation = (await repository.listOutbox())[0];
+    if (operation === undefined) {
+      throw new Error("Expected an outbox operation");
+    }
+
+    await repository.beginOutboxOperation(
+      operation.id,
+      "2026-07-29T10:00:00.000Z",
+      "2026-07-29T10:01:00.000Z",
+    );
+    await repository.failOutboxOperation(
+      operation.id,
+      2,
+      "2026-07-29T10:02:00.000Z",
+    );
+
+    expect(await repository.getOutboxOperation(operation.id)).toEqual({
+      ...operation,
+      state: "failed",
+      attempts: 2,
+      nextAttemptAt: "2026-07-29T10:02:00.000Z",
+    });
+    expect(await repository.getEntry(saved.id)).toMatchObject({
+      syncState: "failed",
+    });
+    await expect(
+      repository.beginOutboxOperation(
+        operation.id,
+        "2026-07-29T10:01:59.999Z",
+        "2026-07-29T10:03:00.000Z",
+      ),
+    ).resolves.toBeUndefined();
+    await repository.beginOutboxOperation(
+      operation.id,
+      "2026-07-29T10:02:00.000Z",
+      "2026-07-29T10:03:00.000Z",
+    );
+    await repository.completeOutboxOperation(operation.id);
+
+    expect(await repository.getOutboxOperation(operation.id)).toBeUndefined();
+    expect(await repository.getEntry(saved.id)).toMatchObject({
+      syncState: "synced",
+    });
+    await expect(
+      repository.completeOutboxOperation(operation.id),
+    ).resolves.toBeUndefined();
+    await expect(
+      repository.failOutboxOperation(
+        operation.id,
+        3,
+        "2026-07-29T10:04:00.000Z",
+      ),
+    ).resolves.toBeUndefined();
+    expect(await repository.getEntry(saved.id)).toMatchObject({
+      syncState: "synced",
+    });
+  });
+
+  it("rolls back completion when outbox removal fails", async () => {
+    const saved = await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Rollback completion",
+      media: [],
+    });
+    const operation = (await repository.listOutbox())[0];
+    if (operation === undefined) {
+      throw new Error("Expected an outbox operation");
+    }
+    await repository.beginOutboxOperation(
+      operation.id,
+      "2026-07-29T10:00:00.000Z",
+      "2026-07-29T10:01:00.000Z",
+    );
+    vi.spyOn(database.outbox, "delete").mockRejectedValueOnce(
+      new Error("delete failed"),
+    );
+
+    await expect(
+      repository.completeOutboxOperation(operation.id),
+    ).rejects.toThrow("delete failed");
+
+    expect(await repository.getOutboxOperation(operation.id)).toMatchObject({
+      state: "syncing",
+    });
+    expect(await repository.getEntry(saved.id)).toMatchObject({
+      syncState: "syncing",
+    });
+  });
+
+  it("validates lease and retry timestamps", async () => {
+    const saved = await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Validate transitions",
+      media: [],
+    });
+    const operation = (await repository.listOutbox())[0];
+    if (operation === undefined) {
+      throw new Error("Expected an outbox operation");
+    }
+
+    await expect(
+      repository.beginOutboxOperation(
+        operation.id,
+        "not-a-time",
+        "2026-07-29T10:01:00.000Z",
+      ),
+    ).rejects.toThrow("Invalid now timestamp");
+    await expect(
+      repository.beginOutboxOperation(
+        operation.id,
+        "2026-07-29T10:00:00.000Z",
+        "2026-07-29T10:00:00.000Z",
+      ),
+    ).rejects.toThrow("Lease must end after now");
+    await expect(
+      repository.failOutboxOperation(operation.id, 1, "not-a-time"),
+    ).rejects.toThrow("Invalid next attempt timestamp");
+    expect(await repository.getEntry(saved.id)).toMatchObject({
+      syncState: "waiting",
+    });
+    expect(await repository.getOutboxOperation(operation.id)).toMatchObject({
+      state: "waiting",
+    });
+  });
+
+  it("returns the stored preference snapshot and coalesces non-syncing work", async () => {
+    await repository.setBackgroundPreference(
+      { mode: "random" },
+      "2026-07-29T11:00:00.000Z",
+    );
+    const firstOperation = (await repository.listOutbox())[0];
+    if (firstOperation === undefined) {
+      throw new Error("Expected a preference operation");
+    }
+    await repository.failOutboxOperation(
+      firstOperation.id,
+      1,
+      "2026-07-29T11:01:00.000Z",
+    );
+
+    await repository.setBackgroundPreference(
+      { mode: "pinned", pinnedAssetId: "asset-1" },
+      "2026-07-29T12:00:00.000Z",
+    );
+    await repository.setBackgroundPreference(
+      { mode: "random" },
+      "2026-07-29T13:00:00.000Z",
+    );
+
+    expect(await repository.getStoredBackgroundPreference()).toEqual({
+      key: "background",
+      value: { mode: "random" },
+      updatedAt: "2026-07-29T13:00:00.000Z",
+    });
+    expect(await repository.getBackgroundPreference()).toEqual({
+      mode: "random",
+    });
+    expect(await repository.listOutbox()).toMatchObject([
+      {
+        kind: "upsert-preference",
+        state: "waiting",
+        attempts: 0,
+        createdAt: "2026-07-29T13:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("retains a syncing preference operation while enqueueing the latest snapshot", async () => {
+    await repository.setBackgroundPreference(
+      { mode: "random" },
+      "2026-07-29T11:00:00.000Z",
+    );
+    const syncingOperation = (await repository.listOutbox())[0];
+    if (syncingOperation === undefined) {
+      throw new Error("Expected a preference operation");
+    }
+    await repository.beginOutboxOperation(
+      syncingOperation.id,
+      "2026-07-29T11:00:00.000Z",
+      "2026-07-29T11:10:00.000Z",
+    );
+
+    await repository.setBackgroundPreference(
+      { mode: "pinned", pinnedAssetId: "asset-latest" },
+      "2026-07-29T12:00:00.000Z",
+    );
+
+    expect(await repository.getStoredBackgroundPreference()).toEqual({
+      key: "background",
+      value: { mode: "pinned", pinnedAssetId: "asset-latest" },
+      updatedAt: "2026-07-29T12:00:00.000Z",
+    });
+    expect(await repository.listOutbox()).toMatchObject([
+      {
+        id: syncingOperation.id,
+        kind: "upsert-preference",
+        state: "syncing",
+      },
+      {
+        kind: "upsert-preference",
+        state: "waiting",
+        createdAt: "2026-07-29T12:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("does not notify mutation listeners for internal sync transitions", async () => {
+    const listener = vi.fn();
+    repository.subscribeToMutations(listener);
+    await repository.createEntry({
+      entryDate: "2026-07-29",
+      text: "Quiet transitions",
+      media: [],
+    });
+    const operation = (await repository.listOutbox())[0];
+    if (operation === undefined) {
+      throw new Error("Expected an outbox operation");
+    }
+    listener.mockClear();
+
+    await repository.beginOutboxOperation(
+      operation.id,
+      "2026-07-29T10:00:00.000Z",
+      "2026-07-29T10:01:00.000Z",
+    );
+    await repository.failOutboxOperation(
+      operation.id,
+      1,
+      "2026-07-29T10:02:00.000Z",
+    );
+    await repository.beginOutboxOperation(
+      operation.id,
+      "2026-07-29T10:02:00.000Z",
+      "2026-07-29T10:03:00.000Z",
+    );
+    await repository.completeOutboxOperation(operation.id);
+
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it("gets and sets the sync cursor", async () => {
