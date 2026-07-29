@@ -7,7 +7,7 @@ import {
   createDiaryRepository,
   type DiaryRepository,
 } from "../local/diaryRepository";
-import { OutboxProcessor } from "./outbox";
+import { OutboxLeaseRecoveryError, OutboxProcessor } from "./outbox";
 
 let databaseSequence = 0;
 const databases: VisualDiaryDb[] = [];
@@ -525,11 +525,13 @@ describe("OutboxProcessor", () => {
       await processor.flush();
       throw new Error("Expected flush to reject");
     } catch (error) {
-      expect(error).toBeInstanceOf(AggregateError);
-      if (!(error instanceof AggregateError)) {
+      expect(error).toBeInstanceOf(OutboxLeaseRecoveryError);
+      if (!(error instanceof OutboxLeaseRecoveryError)) {
         throw error;
       }
       expect(error.errors).toEqual([remoteFailure, persistenceFailure]);
+      expect(error.operationId).toBe(operation.id);
+      expect(error.blockedUntil).toBe("2026-07-30T10:00:30.000Z");
     }
     expect(await repository.getOutboxOperation(operation.id)).toMatchObject({
       state: "syncing",

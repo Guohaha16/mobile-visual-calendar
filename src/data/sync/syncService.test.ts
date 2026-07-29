@@ -5,7 +5,10 @@ import {
   type CloudGateway,
   type CloudPullResult,
 } from "../cloud/cloudGateway";
-import type { OutboxFlushResult } from "./outbox";
+import {
+  OutboxLeaseRecoveryError,
+  type OutboxFlushResult,
+} from "./outbox";
 import {
   SyncService,
   type OnlineMonitor,
@@ -96,6 +99,7 @@ class FakeOutboxFlusher implements OutboxFlusher {
   activeFlushes = 0;
   maxActiveFlushes = 0;
   results: OutboxFlushResult[] = [{ processed: 0, failed: 0 }];
+  failures: Error[] = [];
   gate?: Promise<void>;
   onFlush?: (call: number) => void;
 
@@ -109,6 +113,10 @@ class FakeOutboxFlusher implements OutboxFlusher {
     this.onFlush?.(this.flushCalls);
     try {
       await this.gate;
+      const failure = this.failures.shift();
+      if (failure !== undefined) {
+        throw failure;
+      }
       return this.results.shift() ?? { processed: 0, failed: 0 };
     } finally {
       this.activeFlushes -= 1;
@@ -200,6 +208,16 @@ class FakeScheduler implements SyncScheduler {
       .map((task) => task.delayMs);
   }
 }
+
+const createLeaseRecoveryError = (
+  blockedUntil = "2026-07-30T10:00:30.000Z",
+): OutboxLeaseRecoveryError =>
+  new OutboxLeaseRecoveryError(
+    "operation-1",
+    blockedUntil,
+    new Error("remote failed"),
+    new Error("retry persistence failed"),
+  );
 
 const createService = ({
   online = new FakeOnlineMonitor(true),
@@ -337,6 +355,35 @@ describe("SyncService", () => {
     context.service.stop();
   });
 
+  it("retries a lease recovery error when its timer fires", async () => {
+    const context = createService();
+    context.outbox.failures = [createLeaseRecoveryError()];
+    context.outbox.results = [{ processed: 1, failed: 0 }];
+    let emittedMutation = false;
+    context.service.subscribe((snapshot) => {
+      if (snapshot === "failed" && !emittedMutation) {
+        emittedMutation = true;
+        context.repository.emitMutation();
+      }
+    });
+
+    context.service.start();
+    await context.service.requestFlush();
+
+    expect(context.service.getSnapshot()).toBe("failed");
+    expect(context.gateway.pullCalls).toEqual([]);
+    expect(context.scheduler.pendingDelays).toEqual([30_000]);
+
+    context.time.now = "2026-07-30T10:00:30.000Z";
+    context.scheduler.runNext();
+    await context.service.requestFlush();
+
+    expect(context.outbox.flushCalls).toBe(2);
+    expect(context.gateway.pullCalls).toEqual([undefined]);
+    expect(context.service.getSnapshot()).toBe("idle");
+    context.service.stop();
+  });
+
   it("maps paused sessions and a missing gateway without touching the outbox", async () => {
     const paused = createService();
     paused.gateway.ensureError = new CloudSessionPausedError(
@@ -399,6 +446,30 @@ describe("SyncService", () => {
     expect(outbox.flushCalls).toBe(2);
     expect(outbox.maxActiveFlushes).toBe(1);
     expect(context.gateway.pullCalls).toHaveLength(1);
+    context.service.stop();
+  });
+
+  it("runs another push pass when idle publication causes a mutation", async () => {
+    const repository = new FakeSyncRepository();
+    const outbox = new FakeOutboxFlusher();
+    const context = createService({ repository, outbox });
+    let emittedMutation = false;
+    context.service.subscribe((snapshot) => {
+      if (snapshot === "idle" && !emittedMutation) {
+        emittedMutation = true;
+        repository.emitMutation();
+      }
+    });
+
+    context.service.start();
+    await context.service.requestFlush();
+    await vi.waitFor(() => {
+      expect(outbox.flushCalls).toBe(2);
+    });
+
+    expect(outbox.flushCalls).toBe(2);
+    expect(context.gateway.pullCalls).toHaveLength(2);
+    expect(context.commits).toHaveLength(2);
     context.service.stop();
   });
 
@@ -489,22 +560,32 @@ describe("SyncService", () => {
 
   it("cancels a deferred retry when stopped", async () => {
     const context = createService();
-    context.outbox.results = [
-      {
-        processed: 0,
-        failed: 0,
-        pending: true,
-        blockedUntil: "2026-07-30T10:00:02.000Z",
-      },
-    ];
+    context.outbox.failures = [createLeaseRecoveryError()];
     context.service.start();
     await context.service.requestFlush();
-    expect(context.scheduler.pendingDelays).toEqual([2_000]);
+    expect(context.scheduler.pendingDelays).toEqual([30_000]);
 
     context.service.stop();
 
     expect(context.scheduler.pendingDelays).toEqual([]);
     expect(() => context.scheduler.runNext()).toThrow("No scheduled task");
+  });
+
+  it("cancels a lease recovery retry when connectivity goes offline", async () => {
+    const online = new FakeOnlineMonitor(true);
+    const context = createService({ online });
+    context.outbox.failures = [createLeaseRecoveryError()];
+    context.service.start();
+    await context.service.requestFlush();
+    expect(context.scheduler.pendingDelays).toEqual([30_000]);
+
+    online.setOnline(false);
+    online.emit("offline");
+
+    expect(context.service.getSnapshot()).toBe("waiting");
+    expect(context.scheduler.pendingDelays).toEqual([]);
+    expect(() => context.scheduler.runNext()).toThrow("No scheduled task");
+    context.service.stop();
   });
 
   it("does not pull or publish a final status when stopped during a push", async () => {

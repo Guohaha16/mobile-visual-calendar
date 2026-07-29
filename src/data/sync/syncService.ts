@@ -4,7 +4,10 @@ import {
   type CloudPullResult,
 } from "../cloud/cloudGateway";
 import type { DiaryRepository } from "../local/diaryRepository";
-import type { OutboxFlushResult } from "./outbox";
+import {
+  OutboxLeaseRecoveryError,
+  type OutboxFlushResult,
+} from "./outbox";
 
 export type SyncStatus =
   | "idle"
@@ -176,7 +179,7 @@ export class SyncService {
       .then(() => this.runRequestedCycles(cycleGeneration))
       .catch((error: unknown) => {
         if (this.isCurrent(cycleGeneration)) {
-          this.handleCycleError(error);
+          this.handleCycleError(error, cycleGeneration);
         }
       });
     this.activeCycle = activeCycle;
@@ -186,7 +189,15 @@ export class SyncService {
       }
 
       this.activeCycle = undefined;
-      if (this.started && !this.isCurrent(cycleGeneration)) {
+      const currentGeneration = this.isCurrent(cycleGeneration);
+      const restartForGeneration = this.started && !currentGeneration;
+      const restartForRerun =
+        this.started &&
+        currentGeneration &&
+        this.rerunRequested &&
+        this.cancelRetry === undefined &&
+        this.online.isOnline();
+      if (restartForGeneration || restartForRerun) {
         this.requestFlushInBackground();
       }
     };
@@ -282,7 +293,7 @@ export class SyncService {
       if (!this.isCurrent(generation)) {
         return "stopped";
       }
-      this.handleCycleError(error);
+      this.handleCycleError(error, generation);
       return "complete";
     }
   }
@@ -303,14 +314,19 @@ export class SyncService {
 
   private requestFlushInBackground(): void {
     void this.requestFlush().catch((error: unknown) => {
-      this.handleCycleError(error);
+      this.handleCycleError(error, this.generation);
     });
   }
 
-  private handleCycleError(error: unknown): void {
+  private handleCycleError(error: unknown, generation: number): void {
     if (error instanceof CloudSessionPausedError) {
       this.clearRetry();
       this.setStatus("paused");
+      return;
+    }
+    if (error instanceof OutboxLeaseRecoveryError) {
+      this.scheduleRetry(error.blockedUntil, generation);
+      this.setStatus("failed");
       return;
     }
     this.setStatus("failed");

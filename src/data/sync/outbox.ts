@@ -27,6 +27,23 @@ export type OutboxFlushResult =
 
 export const OUTBOX_LEASE_MS = 30_000;
 
+export class OutboxLeaseRecoveryError extends AggregateError {
+  override readonly name = "OutboxLeaseRecoveryError";
+
+  constructor(
+    readonly operationId: string,
+    readonly blockedUntil: string,
+    operationError: unknown,
+    persistenceError: unknown,
+  ) {
+    super(
+      [operationError, persistenceError],
+      `Failed to persist retry for outbox operation ${operationId}`,
+      { cause: persistenceError },
+    );
+  }
+}
+
 type OutboxRepository = Pick<
   DiaryRepository,
   | "beginOutboxOperation"
@@ -139,10 +156,11 @@ export class OutboxProcessor {
             nextAttemptAt,
           );
         } catch (persistenceError) {
-          throw new AggregateError(
-            [operationError, persistenceError],
-            `Failed to persist retry for outbox operation ${operation.id}`,
-            { cause: persistenceError },
+          throw new OutboxLeaseRecoveryError(
+            operation.id,
+            leaseUntil,
+            operationError,
+            persistenceError,
           );
         }
         return { processed, failed: 1, blockedUntil: nextAttemptAt };
