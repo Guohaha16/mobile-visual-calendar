@@ -15,10 +15,17 @@
   box-sizing: border-box;
 }
 
-html,
+html {
+  height: 100%;
+}
+
 body,
 #root {
   min-height: 100%;
+}
+
+#root {
+  min-height: 100dvh;
 }
 
 body {
