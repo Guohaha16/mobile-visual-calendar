@@ -49,15 +49,21 @@ describe("resolveBackground", () => {
     });
   });
 
-  it("clamps injected randomness to a safe asset index", () => {
+  it("clamps negative randomness to the first asset", () => {
     expect(resolveBackground({ mode: "random" }, assets, () => -10)).toEqual({
       mode: "random",
       asset: assets[0],
     });
-    expect(resolveBackground({ mode: "random" }, assets, () => 10)).toEqual({
+  });
+
+  it("clamps randomness of exactly one to the last asset", () => {
+    expect(resolveBackground({ mode: "random" }, assets, () => 1)).toEqual({
       mode: "random",
       asset: assets[1],
     });
+  });
+
+  it("treats NaN randomness as zero", () => {
     expect(
       resolveBackground({ mode: "random" }, assets, () => Number.NaN),
     ).toEqual({

@@ -8,6 +8,9 @@ export interface BookGeometry {
   offset: number;
 }
 
+const MIN_SUPPORTED_YEAR = 1000;
+const MAX_SUPPORTED_YEAR = 9999;
+
 const assertValidMonth = (month: number): void => {
   if (!Number.isInteger(month) || month < 1 || month > 12) {
     throw new RangeError("Month must be an integer from 1 through 12");
@@ -15,8 +18,14 @@ const assertValidMonth = (month: number): void => {
 };
 
 const assertValidYear = (year: number): void => {
-  if (!Number.isInteger(year)) {
-    throw new RangeError("Year must be an integer");
+  if (
+    !Number.isInteger(year) ||
+    year < MIN_SUPPORTED_YEAR ||
+    year > MAX_SUPPORTED_YEAR
+  ) {
+    throw new RangeError(
+      `Year must be an integer from ${MIN_SUPPORTED_YEAR} through ${MAX_SUPPORTED_YEAR}`,
+    );
   }
 };
 

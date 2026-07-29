@@ -6,13 +6,15 @@ const makeAsset = (
   id: string,
   entryId: string,
   mimeType: string,
+  sortOrder = 0,
+  createdAt = "2026-07-01T12:00:00.000Z",
 ): MediaAsset => ({
   id,
   entryId,
   userId: "user-1",
   mimeType,
-  sortOrder: 0,
-  createdAt: "2026-07-01T12:00:00.000Z",
+  sortOrder,
+  createdAt,
 });
 
 const makeEntry = (
@@ -33,21 +35,28 @@ const makeEntry = (
 });
 
 describe("createBookGeometry", () => {
-  it("returns deterministic, bounded geometry for a month", () => {
+  it("returns deterministic geometry for a month", () => {
     const first = createBookGeometry(2026, 7);
     const second = createBookGeometry(2026, 7);
 
     expect(first).toEqual(second);
-    expect(first.width).toBeGreaterThanOrEqual(72);
-    expect(first.width).toBeLessThanOrEqual(104);
-    expect(first.height).toBeGreaterThanOrEqual(104);
-    expect(first.height).toBeLessThanOrEqual(148);
-    expect(first.tilt).toBeGreaterThanOrEqual(-4);
-    expect(first.tilt).toBeLessThanOrEqual(4);
-    expect(first.depth).toBeGreaterThanOrEqual(10);
-    expect(first.depth).toBeLessThanOrEqual(24);
-    expect(first.offset).toBeGreaterThanOrEqual(-6);
-    expect(first.offset).toBeLessThanOrEqual(6);
+  });
+
+  it("keeps geometry bounded for every month", () => {
+    for (let month = 1; month <= 12; month += 1) {
+      const geometry = createBookGeometry(2026, month);
+
+      expect(geometry.width).toBeGreaterThanOrEqual(72);
+      expect(geometry.width).toBeLessThanOrEqual(104);
+      expect(geometry.height).toBeGreaterThanOrEqual(104);
+      expect(geometry.height).toBeLessThanOrEqual(148);
+      expect(geometry.tilt).toBeGreaterThanOrEqual(-4);
+      expect(geometry.tilt).toBeLessThanOrEqual(4);
+      expect(geometry.depth).toBeGreaterThanOrEqual(10);
+      expect(geometry.depth).toBeLessThanOrEqual(24);
+      expect(geometry.offset).toBeGreaterThanOrEqual(-6);
+      expect(geometry.offset).toBeLessThanOrEqual(6);
+    }
   });
 
   it("varies geometry between July and August", () => {
@@ -59,6 +68,13 @@ describe("createBookGeometry", () => {
   it("rejects invalid months", () => {
     expect(() => createBookGeometry(2026, 0)).toThrow(RangeError);
     expect(() => createBookGeometry(2026, 13)).toThrow(RangeError);
+  });
+
+  it("supports years 1000 through 9999", () => {
+    expect(() => createBookGeometry(1000, 1)).not.toThrow();
+    expect(() => createBookGeometry(9999, 12)).not.toThrow();
+    expect(() => createBookGeometry(999, 12)).toThrow(RangeError);
+    expect(() => createBookGeometry(10000, 1)).toThrow(RangeError);
   });
 });
 
@@ -91,5 +107,17 @@ describe("selectMonthCover", () => {
     ];
 
     expect(selectMonthCover(entries)).toBeUndefined();
+  });
+
+  it("uses media sort order and stable tie-breaking within the latest entry", () => {
+    const entries = [
+      makeEntry("entry-new", "2026-07-29", [
+        makeAsset("later-sort", "entry-new", "image/jpeg", 1),
+        makeAsset("tie-b", "entry-new", "image/png", 0),
+        makeAsset("tie-a", "entry-new", "image/webp", 0),
+      ]),
+    ];
+
+    expect(selectMonthCover(entries)).toBe("tie-a");
   });
 });
