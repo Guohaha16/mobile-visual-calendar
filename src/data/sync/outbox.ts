@@ -1,19 +1,40 @@
-import type { OutboxOperation, StoredPreference } from "../../domain/types";
+import type { OutboxOperation } from "../../domain/types";
 import type { CloudGateway } from "../cloud/cloudGateway";
 import type { DiaryRepository } from "../local/diaryRepository";
 
-export interface OutboxFlushResult {
+export interface SuccessfulOutboxFlushResult {
   processed: number;
-  failed: number;
+  failed: 0;
 }
+
+export interface PendingOutboxFlushResult {
+  processed: number;
+  failed: 0;
+  pending: true;
+  blockedUntil: string;
+}
+
+export interface FailedOutboxFlushResult {
+  processed: number;
+  failed: 1;
+  blockedUntil: string;
+}
+
+export type OutboxFlushResult =
+  | SuccessfulOutboxFlushResult
+  | PendingOutboxFlushResult
+  | FailedOutboxFlushResult;
+
+export const OUTBOX_LEASE_MS = 30_000;
 
 type OutboxRepository = Pick<
   DiaryRepository,
-  | "getBackgroundPreference"
+  | "beginOutboxOperation"
+  | "completeOutboxOperation"
+  | "failOutboxOperation"
+  | "getOutboxOperation"
+  | "getStoredBackgroundPreference"
   | "listOutbox"
-  | "removeOutboxOperation"
-  | "updateEntrySyncState"
-  | "updateOutboxOperation"
 >;
 
 export interface OutboxProcessorDependencies {
@@ -58,48 +79,95 @@ export class OutboxProcessor {
     const operations = await this.dependencies.repository.listOutbox();
     let processed = 0;
 
-    for (const operation of operations) {
-      if (!this.isDue(operation)) {
-        break;
+    for (const listedOperation of operations) {
+      const now = this.dependencies.clock();
+      const nowMillis = timestampMillis(now, "clock");
+      const existingBlock = this.blockedUntil(listedOperation, nowMillis);
+      if (existingBlock !== undefined) {
+        return {
+          processed,
+          failed: 0,
+          pending: true,
+          blockedUntil: existingBlock,
+        };
+      }
+
+      const leaseUntil = new Date(nowMillis + OUTBOX_LEASE_MS).toISOString();
+      const operation =
+        await this.dependencies.repository.beginOutboxOperation(
+          listedOperation.id,
+          now,
+          leaseUntil,
+        );
+      if (operation === undefined) {
+        const currentOperation =
+          await this.dependencies.repository.getOutboxOperation(
+            listedOperation.id,
+          );
+        if (currentOperation === undefined) {
+          continue;
+        }
+
+        return {
+          processed,
+          failed: 0,
+          pending: true,
+          blockedUntil:
+            this.blockedUntil(currentOperation, nowMillis) ?? leaseUntil,
+        };
       }
 
       try {
-        await this.markSyncing(operation);
         await this.push(operation);
-        await this.markSucceeded(operation);
+        await this.dependencies.repository.completeOutboxOperation(
+          operation.id,
+        );
         processed += 1;
-      } catch {
-        await this.markFailed(operation);
-        return { processed, failed: 1 };
+      } catch (operationError) {
+        const failureNow = timestampMillis(
+          this.dependencies.clock(),
+          "clock",
+        );
+        const attempts = operation.attempts + 1;
+        const nextAttemptAt = new Date(
+          failureNow + retryDelay(attempts),
+        ).toISOString();
+        try {
+          await this.dependencies.repository.failOutboxOperation(
+            operation.id,
+            attempts,
+            nextAttemptAt,
+          );
+        } catch (persistenceError) {
+          throw new AggregateError(
+            [operationError, persistenceError],
+            `Failed to persist retry for outbox operation ${operation.id}`,
+            { cause: persistenceError },
+          );
+        }
+        return { processed, failed: 1, blockedUntil: nextAttemptAt };
       }
     }
 
     return { processed, failed: 0 };
   }
 
-  private isDue(operation: OutboxOperation): boolean {
-    if (operation.state !== "failed" || operation.nextAttemptAt === undefined) {
-      return true;
+  private blockedUntil(
+    operation: OutboxOperation,
+    nowMillis: number,
+  ): string | undefined {
+    if (
+      operation.state === "waiting" ||
+      operation.nextAttemptAt === undefined
+    ) {
+      return undefined;
     }
 
-    const now = timestampMillis(this.dependencies.clock(), "clock");
     const nextAttemptAt = timestampMillis(
       operation.nextAttemptAt,
       "next attempt",
     );
-    return nextAttemptAt <= now;
-  }
-
-  private async markSyncing(operation: OutboxOperation): Promise<void> {
-    await this.dependencies.repository.updateOutboxOperation(operation.id, {
-      state: "syncing",
-    });
-    if (operation.kind !== "upsert-preference") {
-      await this.dependencies.repository.updateEntrySyncState(
-        operation.entityId,
-        "syncing",
-      );
-    }
+    return nextAttemptAt > nowMillis ? operation.nextAttemptAt : undefined;
   }
 
   private async push(operation: OutboxOperation): Promise<void> {
@@ -129,59 +197,17 @@ export class OutboxProcessor {
   }
 
   private async pushPreference(operation: OutboxOperation): Promise<void> {
-    const pushPreference = this.dependencies.gateway.pushPreference;
-    if (pushPreference === undefined) {
-      throw new Error(
-        "Cloud preference sync is paused: gateway.pushPreference is unavailable",
-      );
-    }
-
-    const value =
-      await this.dependencies.repository.getBackgroundPreference();
-    if (value === undefined) {
+    const preference =
+      await this.dependencies.repository.getStoredBackgroundPreference();
+    if (preference === undefined) {
       throw new Error(
         `Preference operation ${operation.id} has no local background value`,
       );
     }
 
-    const preference: StoredPreference = {
-      key: "background",
-      value,
-      updatedAt: operation.createdAt,
-    };
-    await pushPreference.call(
-      this.dependencies.gateway,
+    await this.dependencies.gateway.pushPreference(
       preference,
       operation.id,
     );
-  }
-
-  private async markSucceeded(operation: OutboxOperation): Promise<void> {
-    if (operation.kind !== "upsert-preference") {
-      await this.dependencies.repository.updateEntrySyncState(
-        operation.entityId,
-        "synced",
-      );
-    }
-    await this.dependencies.repository.removeOutboxOperation(operation.id);
-  }
-
-  private async markFailed(operation: OutboxOperation): Promise<void> {
-    const now = timestampMillis(this.dependencies.clock(), "clock");
-    const attempts = operation.attempts + 1;
-    await this.dependencies.repository.updateOutboxOperation(operation.id, {
-      state: "failed",
-      attempts,
-      nextAttemptAt: new Date(
-        now + retryDelay(attempts),
-      ).toISOString(),
-    });
-
-    if (operation.kind !== "upsert-preference") {
-      await this.dependencies.repository.updateEntrySyncState(
-        operation.entityId,
-        "failed",
-      );
-    }
   }
 }

@@ -32,7 +32,9 @@ class FakeCloudGateway implements CloudGateway {
   readonly calls: string[] = [];
   readonly deliveries: string[] = [];
   readonly remoteApplications: string[] = [];
+  readonly pushedPreferences: StoredPreference[] = [];
   createFailure?: Error;
+  deleteFailure?: Error;
   createGate?: Promise<void>;
   private readonly appliedOperationIds = new Set<string>();
 
@@ -57,6 +59,11 @@ class FakeCloudGateway implements CloudGateway {
     operationId: string,
   ): Promise<void> {
     this.calls.push(`delete:${entryId}:${deletedAt}:${operationId}`);
+    if (this.deleteFailure !== undefined) {
+      const failure = this.deleteFailure;
+      this.deleteFailure = undefined;
+      throw failure;
+    }
     this.applyRemote(operationId, `delete:${entryId}:${deletedAt}`);
   }
 
@@ -64,6 +71,7 @@ class FakeCloudGateway implements CloudGateway {
     preference: StoredPreference,
     operationId: string,
   ): Promise<void> {
+    this.pushedPreferences.push(preference);
     this.calls.push(
       `preference:${preference.value.mode}:${preference.updatedAt}:${operationId}`,
     );
@@ -155,6 +163,7 @@ describe("OutboxProcessor", () => {
     await expect(processor.flush()).resolves.toEqual({
       processed: 0,
       failed: 1,
+      blockedUntil: "2026-07-30T10:00:02.000Z",
     });
 
     const failedHead = (await repository.listOutbox())[0];
@@ -174,6 +183,8 @@ describe("OutboxProcessor", () => {
     await expect(processor.flush()).resolves.toEqual({
       processed: 0,
       failed: 0,
+      pending: true,
+      blockedUntil: "2026-07-30T10:00:02.000Z",
     });
     expect(gateway.calls).toEqual([
       `create:${first.id}:${firstOperation.id}`,
@@ -235,6 +246,7 @@ describe("OutboxProcessor", () => {
       await expect(processor.flush()).resolves.toEqual({
         processed: 0,
         failed: 1,
+        blockedUntil: expectedNextAttemptAt,
       });
       expect(await repository.getOutboxOperation(operation.id)).toMatchObject({
         attempts: expectedAttempts,
@@ -287,15 +299,24 @@ describe("OutboxProcessor", () => {
     ]);
   });
 
-  it("uses explicit preference sync and retains the operation when unsupported", async () => {
+  it("pushes the full latest preference before later records", async () => {
     const repository = createRepository();
     await repository.setBackgroundPreference(
       { mode: "random" },
       "2026-07-30T08:30:00.000Z",
     );
-    const firstOperation = (await repository.listOutbox())[0];
-    if (firstOperation === undefined) {
-      throw new Error("Expected a preference operation");
+    await repository.setBackgroundPreference(
+      { mode: "pinned", pinnedAssetId: "asset-1" },
+      "2026-07-30T08:31:00.000Z",
+    );
+    const entry = await repository.createEntry({
+      entryDate: "2026-07-30",
+      text: "After preference",
+      media: [],
+    });
+    const [firstOperation, secondOperation] = await repository.listOutbox();
+    if (firstOperation === undefined || secondOperation === undefined) {
+      throw new Error("Expected preference and create operations");
     }
     const gateway = new FakeCloudGateway();
     const processor = new OutboxProcessor({
@@ -305,40 +326,18 @@ describe("OutboxProcessor", () => {
     });
 
     await expect(processor.flush()).resolves.toEqual({
-      processed: 1,
+      processed: 2,
       failed: 0,
     });
     expect(gateway.calls).toEqual([
-      `preference:random:2026-07-30T08:30:00.000Z:${firstOperation.id}`,
+      `preference:pinned:2026-07-30T08:31:00.000Z:${firstOperation.id}`,
+      `create:${entry.id}:${secondOperation.id}`,
     ]);
-
-    await repository.setBackgroundPreference(
-      { mode: "pinned", pinnedAssetId: "asset-1" },
-      "2026-07-30T08:31:00.000Z",
-    );
-    const gatewayWithoutPreference: CloudGateway = {
-      ensureSession: () => gateway.ensureSession(),
-      pushCreate: (entryId, operationId) =>
-        gateway.pushCreate(entryId, operationId),
-      pushDelete: (entryId, deletedAt, operationId) =>
-        gateway.pushDelete(entryId, deletedAt, operationId),
-      pullSince: (cursor) => gateway.pullSince(cursor),
-    };
-    const unsupportedProcessor = new OutboxProcessor({
-      repository,
-      gateway: gatewayWithoutPreference,
-      clock: () => "2026-07-30T10:00:00.000Z",
-    });
-
-    await expect(unsupportedProcessor.flush()).resolves.toEqual({
-      processed: 0,
-      failed: 1,
-    });
-    expect(await repository.listOutbox()).toMatchObject([
+    expect(gateway.pushedPreferences).toEqual([
       {
-        kind: "upsert-preference",
-        state: "failed",
-        attempts: 1,
+        key: "background",
+        value: { mode: "pinned", pinnedAssetId: "asset-1" },
+        updatedAt: "2026-07-30T08:31:00.000Z",
       },
     ]);
   });
@@ -355,7 +354,7 @@ describe("OutboxProcessor", () => {
       throw new Error("Expected a create operation");
     }
     const gateway = new FakeCloudGateway();
-    vi.spyOn(repository, "removeOutboxOperation").mockRejectedValueOnce(
+    vi.spyOn(repository, "completeOutboxOperation").mockRejectedValueOnce(
       new Error("local removal failed"),
     );
     let now = "2026-07-30T10:00:00.000Z";
@@ -368,6 +367,7 @@ describe("OutboxProcessor", () => {
     await expect(firstProcessor.flush()).resolves.toEqual({
       processed: 0,
       failed: 1,
+      blockedUntil: "2026-07-30T10:00:02.000Z",
     });
     expect(await repository.getOutboxOperation(operation.id)).toMatchObject({
       id: operation.id,
@@ -390,5 +390,153 @@ describe("OutboxProcessor", () => {
     expect(gateway.deliveries).toEqual([operation.id, operation.id]);
     expect(gateway.remoteApplications).toEqual([`create:${entry.id}`]);
     expect(await repository.getOutboxOperation(operation.id)).toBeUndefined();
+  });
+
+  it("returns a pending lease without allowing a second processor to overtake", async () => {
+    const repository = createRepository();
+    const entry = await repository.createEntry({
+      entryDate: "2026-07-30",
+      text: "Leased",
+      media: [],
+    });
+    const operation = (await repository.listOutbox())[0];
+    if (operation === undefined) {
+      throw new Error("Expected a create operation");
+    }
+    let releaseCreate = () => {};
+    const gateway = new FakeCloudGateway();
+    gateway.createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    const firstProcessor = new OutboxProcessor({
+      repository,
+      gateway,
+      clock: () => "2026-07-30T10:00:00.000Z",
+    });
+    const secondProcessor = new OutboxProcessor({
+      repository,
+      gateway,
+      clock: () => "2026-07-30T10:00:00.000Z",
+    });
+
+    const firstFlush = firstProcessor.flush();
+    await vi.waitFor(() => {
+      expect(gateway.calls).toEqual([
+        `create:${entry.id}:${operation.id}`,
+      ]);
+    });
+    await expect(secondProcessor.flush()).resolves.toEqual({
+      processed: 0,
+      failed: 0,
+      pending: true,
+      blockedUntil: "2026-07-30T10:00:30.000Z",
+    });
+
+    releaseCreate();
+    await expect(firstFlush).resolves.toEqual({ processed: 1, failed: 0 });
+    expect(gateway.calls).toHaveLength(1);
+  });
+
+  it("keeps a failed delete hidden while pending and retries the same operation", async () => {
+    const repository = createRepository();
+    const entry = await repository.createEntry({
+      entryDate: "2026-07-30",
+      text: "Delete offline",
+      media: [],
+    });
+    const deletedAt = "2026-07-30T09:00:00.000Z";
+    await repository.deleteEntry(entry.id, deletedAt);
+    const deleteOperation = (await repository.listOutbox())[1];
+    if (deleteOperation === undefined) {
+      throw new Error("Expected a delete operation");
+    }
+    const gateway = new FakeCloudGateway();
+    gateway.deleteFailure = new Error("delete unavailable");
+    let now = "2026-07-30T10:00:00.000Z";
+    const processor = new OutboxProcessor({
+      repository,
+      gateway,
+      clock: () => now,
+    });
+
+    await expect(processor.flush()).resolves.toEqual({
+      processed: 1,
+      failed: 1,
+      blockedUntil: "2026-07-30T10:00:02.000Z",
+    });
+    expect(await repository.listEntriesForDate("2026-07-30")).toEqual([]);
+    expect(await repository.getEntry(entry.id)).toMatchObject({
+      deletedAt,
+      syncState: "failed",
+    });
+    expect(await repository.getOutboxOperation(deleteOperation.id)).toMatchObject({
+      id: deleteOperation.id,
+      state: "failed",
+    });
+
+    await expect(processor.flush()).resolves.toEqual({
+      processed: 0,
+      failed: 0,
+      pending: true,
+      blockedUntil: "2026-07-30T10:00:02.000Z",
+    });
+    now = "2026-07-30T10:00:02.000Z";
+    await expect(processor.flush()).resolves.toEqual({
+      processed: 1,
+      failed: 0,
+    });
+
+    const deleteCalls = gateway.calls.filter((call) =>
+      call.startsWith(`delete:${entry.id}:`),
+    );
+    expect(deleteCalls).toEqual([
+      `delete:${entry.id}:${deletedAt}:${deleteOperation.id}`,
+      `delete:${entry.id}:${deletedAt}:${deleteOperation.id}`,
+    ]);
+    expect(await repository.listEntriesForDate("2026-07-30")).toEqual([]);
+    expect(await repository.getOutboxOperation(deleteOperation.id)).toBeUndefined();
+  });
+
+  it("preserves remote and persistence failures when an atomic fail transition rejects", async () => {
+    const repository = createRepository();
+    const entry = await repository.createEntry({
+      entryDate: "2026-07-30",
+      text: "Fault",
+      media: [],
+    });
+    const operation = (await repository.listOutbox())[0];
+    if (operation === undefined) {
+      throw new Error("Expected a create operation");
+    }
+    const remoteFailure = new Error("remote failed");
+    const persistenceFailure = new Error("failure persistence failed");
+    const gateway = new FakeCloudGateway();
+    gateway.createFailure = remoteFailure;
+    vi.spyOn(repository, "failOutboxOperation").mockRejectedValueOnce(
+      persistenceFailure,
+    );
+    const processor = new OutboxProcessor({
+      repository,
+      gateway,
+      clock: () => "2026-07-30T10:00:00.000Z",
+    });
+
+    try {
+      await processor.flush();
+      throw new Error("Expected flush to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError);
+      if (!(error instanceof AggregateError)) {
+        throw error;
+      }
+      expect(error.errors).toEqual([remoteFailure, persistenceFailure]);
+    }
+    expect(await repository.getOutboxOperation(operation.id)).toMatchObject({
+      state: "syncing",
+      nextAttemptAt: "2026-07-30T10:00:30.000Z",
+    });
+    expect(await repository.getEntry(entry.id)).toMatchObject({
+      syncState: "syncing",
+    });
   });
 });

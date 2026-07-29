@@ -6,11 +6,16 @@ export type CloudPullResult = {
   cursor: string;
 };
 
+export class CloudSessionPausedError extends Error {
+  override readonly name = "CloudSessionPausedError";
+}
+
 export interface CloudGateway {
   ensureSession(): Promise<{ userId: string }>;
   /**
    * Push delivery is at-least-once. Implementations MUST use operationId as
    * an idempotency key so repeats of the same operation have one remote effect.
+   * Task-specific upserts and storage paths MUST also be naturally idempotent.
    */
   pushCreate(entryId: string, operationId: string): Promise<void>;
   pushDelete(
@@ -18,8 +23,7 @@ export interface CloudGateway {
     deletedAt: string,
     operationId: string,
   ): Promise<void>;
-  // Optional gateways leave preference operations queued as a local-only pause.
-  pushPreference?(
+  pushPreference(
     preference: StoredPreference,
     operationId: string,
   ): Promise<void>;
