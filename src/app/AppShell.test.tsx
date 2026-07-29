@@ -42,6 +42,22 @@ describe("AppShell", () => {
     ).toHaveAttribute("aria-current", "page");
   });
 
+  it("opens the background picker in the shared portal", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Choose background" }),
+    );
+    expect(screen.getByTestId("sheet-layer")).toHaveAttribute(
+      "data-background-open",
+      "true",
+    );
+    expect(
+      screen.getByRole("region", { name: "Background" }),
+    ).toBeInTheDocument();
+  });
+
   it("keeps one navigation and a stateful sheet portal host", async () => {
     const user = userEvent.setup();
     render(<AppShell />);

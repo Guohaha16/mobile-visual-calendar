@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { DiaryBackgroundAsset } from "./types";
@@ -41,5 +41,17 @@ describe("BackgroundScene", () => {
       "src",
       asset.url,
     );
+  });
+
+  it("returns to paper when a diary image fails to load", () => {
+    render(
+      <BackgroundScene
+        assets={[asset]}
+        preference={{ mode: "pinned", pinnedAssetId: asset.id }}
+      />,
+    );
+
+    fireEvent.error(screen.getByRole("presentation"));
+    expect(screen.getByTestId("background-scene")).toHaveClass("fallback");
   });
 });

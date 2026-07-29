@@ -15,6 +15,13 @@
     calc(104px + env(safe-area-inset-bottom));
 }
 
+.backgroundButton {
+  position: fixed;
+  z-index: 20;
+  top: calc(18px + env(safe-area-inset-top));
+  right: 16px;
+}
+
 .view {
   display: grid;
   width: min(100%, 560px);
@@ -47,6 +54,14 @@
   z-index: 40;
   inset: 0;
   pointer-events: none;
+}
+
+.sheetLayer[data-background-open="true"] {
+  display: grid;
+  padding-top: calc(20px + env(safe-area-inset-top));
+  place-items: end center;
+  background: rgb(52 48 46 / 10%);
+  pointer-events: auto;
 }
 
 @media (min-width: 760px) {

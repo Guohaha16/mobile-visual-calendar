@@ -1,12 +1,17 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { Image } from "lucide-react";
 
 import { toLocalDateKey } from "../domain/date";
 import { BottomNav } from "../components/BottomNav";
+import { FrostedIconButton } from "../components/FrostedIconButton";
 import { SyncStatus } from "../components/SyncStatus";
 import { useAppStore } from "./appStore";
 import { parseRoute } from "./routes";
 import { BackgroundScene } from "../features/background/BackgroundScene";
+import { BackgroundPicker } from "../features/background/BackgroundPicker";
+import { useDiaryBackgrounds } from "../features/background/useDiaryBackgrounds";
+import { applicationRepository } from "./appServices";
 import styles from "./AppShell.module.css";
 
 export function AppShell() {
@@ -19,7 +24,10 @@ export function AppShell() {
     route,
     selectedMonth,
     selectedYear,
+    setBackgroundPickerOpen,
   } = useAppStore();
+  const { assets, preference, setPreference } =
+    useDiaryBackgrounds(applicationRepository);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -46,7 +54,15 @@ export function AppShell() {
 
   return (
     <div className={styles.shell}>
-      <BackgroundScene assets={[]} preference={{ mode: "random" }} />
+      <BackgroundScene assets={assets} preference={preference} />
+      <FrostedIconButton
+        className={styles.backgroundButton}
+        icon={Image}
+        label="Choose background"
+        onClick={() => {
+          setBackgroundPickerOpen(true);
+        }}
+      />
       <main aria-label="Visual diary" className={styles.main}>
         {route.view === "shelf" ? (
           <section aria-label={`${selectedYear} bookshelf`} className={styles.view}>
@@ -83,7 +99,29 @@ export function AppShell() {
               data-background-open={isBackgroundPickerOpen}
               data-diary-open={isDiaryOpen}
               data-testid="sheet-layer"
-            />,
+            >
+              {isBackgroundPickerOpen ? (
+                <BackgroundPicker
+                  assets={assets}
+                  onClose={() => {
+                    setBackgroundPickerOpen(false);
+                  }}
+                  onRandom={() => {
+                    void setPreference({ mode: "random" }).then(() => {
+                      setBackgroundPickerOpen(false);
+                    });
+                  }}
+                  onSelect={(assetId) => {
+                    void setPreference({
+                      mode: "pinned",
+                      pinnedAssetId: assetId,
+                    }).then(() => {
+                      setBackgroundPickerOpen(false);
+                    });
+                  }}
+                />
+              ) : null}
+            </div>,
             document.body,
           )}
     </div>
