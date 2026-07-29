@@ -3,16 +3,8 @@
   min-height: 100dvh;
   overflow: hidden;
   color: var(--color-ink);
-  background: var(--color-paper);
+  background: transparent;
   isolation: isolate;
-}
-
-.shell::before {
-  position: fixed;
-  z-index: -1;
-  inset: 0;
-  background: #f5eee6;
-  content: "";
 }
 
 .main {

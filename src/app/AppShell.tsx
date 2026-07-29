@@ -6,6 +6,7 @@ import { BottomNav } from "../components/BottomNav";
 import { SyncStatus } from "../components/SyncStatus";
 import { useAppStore } from "./appStore";
 import { parseRoute } from "./routes";
+import { BackgroundScene } from "../features/background/BackgroundScene";
 import styles from "./AppShell.module.css";
 
 export function AppShell() {
@@ -45,6 +46,7 @@ export function AppShell() {
 
   return (
     <div className={styles.shell}>
+      <BackgroundScene assets={[]} preference={{ mode: "random" }} />
       <main aria-label="Visual diary" className={styles.main}>
         {route.view === "shelf" ? (
           <section aria-label={`${selectedYear} bookshelf`} className={styles.view}>
