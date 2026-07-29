@@ -17,7 +17,10 @@
 
 .main {
   min-height: 100dvh;
-  padding: calc(22px + env(safe-area-inset-top)) 18px 104px;
+  padding:
+    calc(22px + env(safe-area-inset-top))
+    18px
+    calc(104px + env(safe-area-inset-bottom));
 }
 
 .view {
