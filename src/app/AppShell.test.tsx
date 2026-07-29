@@ -13,7 +13,33 @@ describe("AppShell", () => {
       isBackgroundPickerOpen: false,
       isDiaryOpen: false,
       route: { view: "shelf" },
+      selectedMonth: 7,
+      selectedYear: 2026,
     });
+  });
+
+  it("keeps route, year, and month synchronized across history changes", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+
+    await user.click(screen.getByRole("button", { name: "Calendar" }));
+    expect(window.location.pathname).toBe("/calendar/2026/07");
+    expect(useAppStore.getState()).toMatchObject({
+      route: { view: "calendar", year: 2026, month: 7 },
+      selectedMonth: 7,
+      selectedYear: 2026,
+    });
+
+    window.history.pushState({}, "", "/calendar/2030/11");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    expect(useAppStore.getState()).toMatchObject({
+      route: { view: "calendar", year: 2030, month: 11 },
+      selectedMonth: 11,
+      selectedYear: 2030,
+    });
+    expect(
+      screen.getByRole("button", { name: "Calendar" }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
   it("keeps one navigation and a stateful sheet portal host", async () => {

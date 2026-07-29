@@ -14,27 +14,32 @@ export function AppShell() {
     isDiaryOpen,
     navigate,
     openDiary,
+    restoreRoute,
     route,
+    selectedMonth,
     selectedYear,
   } = useAppStore();
 
   useEffect(() => {
     const handlePopState = () => {
-      useAppStore.setState({ route: parseRoute(window.location.pathname) });
+      restoreRoute(parseRoute(window.location.pathname));
     };
 
     window.addEventListener("popstate", handlePopState);
     return () => {
       window.removeEventListener("popstate", handlePopState);
     };
-  }, []);
+  }, [restoreRoute]);
 
-  const openCurrentMonth = () => {
-    const now = new Date();
+  const openSelectedMonth = () => {
+    if (route.view === "calendar") {
+      return;
+    }
+
     navigate({
       view: "calendar",
       year: selectedYear,
-      month: now.getMonth() + 1,
+      month: selectedMonth,
     });
   };
 
@@ -63,21 +68,22 @@ export function AppShell() {
         onAdd={() => {
           openDiary(toLocalDateKey(new Date()));
         }}
-        onCalendar={openCurrentMonth}
+        onCalendar={openSelectedMonth}
         onShelf={() => {
           navigate({ view: "shelf" });
         }}
       />
-      {createPortal(
-        <div
-          aria-hidden="true"
-          className={styles.sheetLayer}
-          data-background-open={isBackgroundPickerOpen}
-          data-diary-open={isDiaryOpen}
-          data-testid="sheet-layer"
-        />,
-        document.body,
-      )}
+      {typeof document === "undefined"
+        ? null
+        : createPortal(
+            <div
+              className={styles.sheetLayer}
+              data-background-open={isBackgroundPickerOpen}
+              data-diary-open={isDiaryOpen}
+              data-testid="sheet-layer"
+            />,
+            document.body,
+          )}
     </div>
   );
 }

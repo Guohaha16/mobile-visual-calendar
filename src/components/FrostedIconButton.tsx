@@ -6,6 +6,7 @@ import styles from "./FrostedIconButton.module.css";
 interface FrostedIconButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
   active?: boolean;
+  current?: boolean;
   icon: LucideIcon;
   label: string;
 }
@@ -13,6 +14,7 @@ interface FrostedIconButtonProps
 export function FrostedIconButton({
   active = false,
   className,
+  current = false,
   icon: Icon,
   label,
   type = "button",
@@ -25,8 +27,8 @@ export function FrostedIconButton({
   return (
     <button
       {...buttonProps}
+      aria-current={current ? "page" : undefined}
       aria-label={label}
-      aria-pressed={active}
       className={classes}
       title={label}
       type={type}

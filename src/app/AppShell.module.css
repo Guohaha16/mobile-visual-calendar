@@ -17,12 +17,12 @@
 
 .main {
   min-height: 100dvh;
-  padding: max(22px, env(safe-area-inset-top)) 18px 104px;
+  padding: calc(22px + env(safe-area-inset-top)) 18px 104px;
 }
 
 .view {
   display: grid;
-  width: min(100%, 1120px);
+  width: min(100%, 560px);
   min-height: calc(100dvh - 126px);
   margin-inline: auto;
   align-content: start;
@@ -45,8 +45,6 @@
   background: rgb(255 252 247 / 62%);
   border: 1px solid rgb(255 255 255 / 76%);
   box-shadow: var(--shadow-glass);
-  backdrop-filter: blur(var(--blur-glass));
-  -webkit-backdrop-filter: blur(var(--blur-glass));
 }
 
 .sheetLayer {

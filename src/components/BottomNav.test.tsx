@@ -16,9 +16,16 @@ describe("BottomNav", () => {
     );
 
     expect(screen.getByRole("button", { name: "Bookshelf" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Bookshelf" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(
       screen.getByRole("button", { name: "Add diary entry" }),
     ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Add diary entry" }),
+    ).not.toHaveAttribute("aria-pressed");
     expect(screen.getByRole("button", { name: "Calendar" })).toBeVisible();
   });
 

@@ -21,6 +21,7 @@ export function BottomNav({
     <nav aria-label="Primary" className={styles.nav}>
       <FrostedIconButton
         active={activeView === "shelf"}
+        current={activeView === "shelf"}
         icon={LibraryBig}
         label="Bookshelf"
         onClick={onShelf}
@@ -33,6 +34,7 @@ export function BottomNav({
       />
       <FrostedIconButton
         active={activeView === "calendar"}
+        current={activeView === "calendar"}
         icon={CalendarDays}
         label="Calendar"
         onClick={onCalendar}
