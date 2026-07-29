@@ -20,6 +20,7 @@ if (!requiresPathWorkaround) {
   );
   assertChildPath(temporaryBase, temporaryOutput, "temporary build output");
   assertChildPath(projectRoot, projectOutput, "project build output");
+  assertAsciiPath(temporaryOutput, "temporary build output");
 
   try {
     await build({
@@ -43,10 +44,17 @@ function isAscii(value) {
 }
 
 function resolveAsciiTemporaryBase() {
-  const candidates = [
-    process.env.VISUAL_DIARY_ASCII_TEMP_DIR,
-    tmpdir()
-  ].filter(Boolean);
+  const override = process.env.VISUAL_DIARY_ASCII_TEMP_DIR;
+
+  if (override && !isAbsolute(override)) {
+    throw new Error(
+      "VISUAL_DIARY_ASCII_TEMP_DIR must be an absolute ASCII-only path."
+    );
+  }
+
+  const candidates = [override, tmpdir()]
+    .filter(Boolean)
+    .map((candidate) => resolve(candidate));
   const base = candidates.find(isAscii);
 
   if (!base) {
@@ -57,6 +65,12 @@ function resolveAsciiTemporaryBase() {
   }
 
   return resolve(base);
+}
+
+function assertAsciiPath(path, label) {
+  if (!isAscii(path)) {
+    throw new Error(`${label} must use an ASCII-only path: ${path}`);
+  }
 }
 
 function assertChildPath(parent, child, label) {
