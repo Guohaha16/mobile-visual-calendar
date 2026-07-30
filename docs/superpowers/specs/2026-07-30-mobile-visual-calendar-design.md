@@ -174,8 +174,10 @@ The central add action always opens the shared diary layer for today. The calend
 - All twelve months exist even when empty.
 - The fallback home surface is cool exhibition white rather than cream or beige.
 - Empty months use stable editorial book colors with month labels: vivid pink, forest green, orange-red, signal red, cobalt blue, mustard yellow, burgundy, cool gray, and dark navy.
-- A month with diary images uses its latest image as the visible cover.
-- Diary image covers always take priority over decorative spine treatments.
+- Only the real current month is presented in front-cover mode on the current-year shelf.
+- The current month uses its latest diary image as the visible cover when one exists; otherwise it uses its editorial solid-color cover.
+- Every other month remains in side-spine mode even when it contains diary images.
+- When browsing a year other than the real current year, all twelve months remain in side-spine mode.
 - Dark navy is reserved for one or two visual-anchor books at a time; it must not dominate the viewport.
 - Book dimensions, color assignments, and tilt use a stable seed derived from year and month. They do not reshuffle on every render.
 - Nearby books translate and rotate slightly as the shelf is dragged.

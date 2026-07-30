@@ -1,23 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useReducedMotion } from "motion/react";
 
-import { MonthBook, type MonthBookMode, type MonthCover } from "./MonthBook";
+import { MonthBook, type MonthCover } from "./MonthBook";
 import styles from "./BookShelf.module.css";
 
 interface BookShelfProps {
   covers: ReadonlyMap<number, MonthCover>;
   onOpenMonth: (month: number) => void;
+  today?: Date;
   year: number;
 }
 
 const months = Array.from({ length: 12 }, (_, index) => index + 1);
 
-const getMonthBookMode = (
-  year: number,
-  month: number,
-): MonthBookMode => ((year + month) % 4 === 1 ? "spine" : "cover");
-
-export function BookShelf({ covers, onOpenMonth, year }: BookShelfProps) {
+export function BookShelf({
+  covers,
+  onOpenMonth,
+  today,
+  year,
+}: BookShelfProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const openTimerRef = useRef<number | undefined>(undefined);
@@ -27,6 +28,9 @@ export function BookShelf({ covers, onOpenMonth, year }: BookShelfProps) {
   const [leftConstraint, setLeftConstraint] = useState(0);
   const x = useMotionValue(0);
   const reducedMotion = useReducedMotion();
+  const now = today ?? new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
 
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -39,8 +43,7 @@ export function BookShelf({ covers, onOpenMonth, year }: BookShelfProps) {
       const overflow = Math.max(0, track.scrollWidth - viewport.clientWidth);
       setLeftConstraint(-overflow);
 
-      const now = new Date();
-      const initialMonth = year === now.getFullYear() ? now.getMonth() + 1 : 1;
+      const initialMonth = year === currentYear ? currentMonth : 1;
       const target = track.querySelector<HTMLElement>(
         `[data-shelf-month="${initialMonth}"]`,
       );
@@ -74,7 +77,7 @@ export function BookShelf({ covers, onOpenMonth, year }: BookShelfProps) {
     return () => {
       observer.disconnect();
     };
-  }, [x, year]);
+  }, [currentMonth, currentYear, x, year]);
 
   useEffect(
     () => () => {
@@ -151,7 +154,9 @@ export function BookShelf({ covers, onOpenMonth, year }: BookShelfProps) {
               focused={focusedMonth === month}
               key={month}
               mode={
-                covers.has(month) ? "cover" : getMonthBookMode(year, month)
+                year === currentYear && month === currentMonth
+                  ? "cover"
+                  : "spine"
               }
               month={month}
               onSelect={openFocusedMonth}

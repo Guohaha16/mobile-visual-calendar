@@ -9,22 +9,39 @@ describe("BookShelf", () => {
     vi.useRealTimers();
   });
 
-  it("renders all twelve months with deterministic display modes", () => {
-    render(<BookShelf covers={new Map()} onOpenMonth={vi.fn()} year={2026} />);
+  it("shows only the current month as a front cover", () => {
+    render(
+      <BookShelf
+        covers={new Map()}
+        onOpenMonth={vi.fn()}
+        today={new Date(2026, 6, 30)}
+        year={2026}
+      />,
+    );
 
     expect(
       screen.getAllByRole("button", { name: /Open .* 2026/ }),
     ).toHaveLength(12);
     expect(
       screen.getByRole("button", { name: "Open July 2026" }),
+    ).toHaveAttribute("data-mode", "cover");
+    expect(
+      screen.getByRole("button", { name: "Open June 2026" }),
+    ).toHaveAttribute("data-mode", "spine");
+    expect(
+      screen.getByRole("button", { name: "Open August 2026" }),
     ).toHaveAttribute("data-mode", "spine");
   });
 
-  it("prioritizes a diary image over the empty-book spine treatment", () => {
+  it("keeps non-current image books on their spines", () => {
     render(
       <BookShelf
-        covers={new Map([[7, { id: "july-cover", url: "blob:july-cover" }]])}
+        covers={new Map([
+          [7, { id: "july-cover", url: "blob:july-cover" }],
+          [8, { id: "august-cover", url: "blob:august-cover" }],
+        ])}
         onOpenMonth={vi.fn()}
+        today={new Date(2026, 6, 30)}
         year={2026}
       />,
     );
@@ -32,6 +49,26 @@ describe("BookShelf", () => {
     expect(
       screen.getByRole("button", { name: "Open July 2026" }),
     ).toHaveAttribute("data-mode", "cover");
+    expect(
+      screen.getByRole("button", { name: "Open August 2026" }),
+    ).toHaveAttribute("data-mode", "spine");
+  });
+
+  it("keeps every month on its spine when browsing another year", () => {
+    render(
+      <BookShelf
+        covers={new Map()}
+        onOpenMonth={vi.fn()}
+        today={new Date(2026, 6, 30)}
+        year={2025}
+      />,
+    );
+
+    for (const button of screen.getAllByRole("button", {
+      name: /Open .* 2025/,
+    })) {
+      expect(button).toHaveAttribute("data-mode", "spine");
+    }
   });
 
   it("focuses a book before opening its month", async () => {
