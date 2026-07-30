@@ -22,6 +22,12 @@
   right: 16px;
 }
 
+@media (max-width: 599px) {
+  .backgroundButton {
+    top: calc(112px + env(safe-area-inset-top));
+  }
+}
+
 .view {
   display: grid;
   width: min(100%, 560px);

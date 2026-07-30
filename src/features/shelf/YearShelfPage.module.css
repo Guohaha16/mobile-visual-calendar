@@ -1,0 +1,64 @@
+.page {
+  display: grid;
+  width: min(100%, 560px);
+  min-height: calc(100dvh - 126px);
+  margin-inline: auto;
+  grid-template-rows: auto minmax(290px, 1fr) auto;
+}
+
+.header {
+  display: grid;
+  width: min(100%, 320px);
+  margin-inline: auto;
+  align-items: center;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+}
+
+.heading {
+  min-width: 0;
+  text-align: center;
+}
+
+.kicker {
+  margin: 3px 0 5px;
+  color: rgb(52 48 46 / 66%);
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.year {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 3.9rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 0.82;
+  text-shadow: 0 1px rgb(255 255 255 / 54%);
+}
+
+.shelfArea {
+  display: grid;
+  min-height: 290px;
+  align-items: center;
+}
+
+.monthCount {
+  margin: 0 auto 7px;
+  color: rgb(52 48 46 / 62%);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.75rem;
+  letter-spacing: 0;
+}
+
+@media (min-width: 760px) {
+  .page {
+    min-height: calc(100dvh - 150px);
+  }
+
+  .year {
+    font-size: 4.8rem;
+  }
+}

@@ -11,6 +11,7 @@ import { parseRoute } from "./routes";
 import { BackgroundScene } from "../features/background/BackgroundScene";
 import { BackgroundPicker } from "../features/background/BackgroundPicker";
 import { useDiaryBackgrounds } from "../features/background/useDiaryBackgrounds";
+import { YearShelfPage } from "../features/shelf/YearShelfPage";
 import { applicationRepository } from "./appServices";
 import styles from "./AppShell.module.css";
 
@@ -25,6 +26,8 @@ export function AppShell() {
     selectedMonth,
     selectedYear,
     setBackgroundPickerOpen,
+    setSelectedMonth,
+    setSelectedYear,
   } = useAppStore();
   const { assets, preference, setPreference } =
     useDiaryBackgrounds(applicationRepository);
@@ -65,9 +68,15 @@ export function AppShell() {
       />
       <main aria-label="Visual diary" className={styles.main}>
         {route.view === "shelf" ? (
-          <section aria-label={`${selectedYear} bookshelf`} className={styles.view}>
-            <h1 className={styles.year}>{selectedYear}</h1>
-          </section>
+          <YearShelfPage
+            onOpenMonth={(month) => {
+              setSelectedMonth(month);
+              navigate({ view: "calendar", year: selectedYear, month });
+            }}
+            onYearChange={setSelectedYear}
+            repository={applicationRepository}
+            year={selectedYear}
+          />
         ) : (
           <section
             aria-label={`${route.year}-${String(route.month).padStart(2, "0")} calendar`}
