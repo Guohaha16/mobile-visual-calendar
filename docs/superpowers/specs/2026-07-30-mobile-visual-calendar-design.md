@@ -25,6 +25,10 @@ The original references are stored in `design-references/`:
   - 1046 x 1503 RGBA PNG.
   - Transparent outside the metal clip and warm paper sheet.
   - Must be used as a real compositing layer, not redrawn as a generic white card.
+- `editorial-bookshelf-palette-reference.png`
+  - Defines the approved home-page color direction.
+  - Uses a cool exhibition-white field, near-black editorial type, and saturated book colors.
+  - The dark navy central cover is a visual anchor, not a full-page dark theme.
 
 ## Product Scope
 
@@ -168,8 +172,11 @@ The central add action always opens the shared diary layer for today. The calend
 - Swiping on the year control changes years.
 - Dragging the shelf moves through the twelve books and does not change years.
 - All twelve months exist even when empty.
-- Empty months use stable multicolor paper spines with month labels.
+- The fallback home surface is cool exhibition white rather than cream or beige.
+- Empty months use stable editorial book colors with month labels: vivid pink, forest green, orange-red, signal red, cobalt blue, mustard yellow, burgundy, cool gray, and dark navy.
 - A month with diary images uses its latest image as the visible cover.
+- Diary image covers always take priority over decorative spine treatments.
+- Dark navy is reserved for one or two visual-anchor books at a time; it must not dominate the viewport.
 - Book dimensions, color assignments, and tilt use a stable seed derived from year and month. They do not reshuffle on every render.
 - Nearby books translate and rotate slightly as the shelf is dragged.
 - The focused month turns toward the viewer before opening its calendar.
@@ -233,27 +240,45 @@ The picker shows image thumbnails with their diary dates. It does not contain a 
 
 ### Palette
 
-The interface uses a varied light palette:
+The home route uses a cool editorial exhibition palette derived from
+`editorial-bookshelf-palette-reference.png`:
 
-- Warm paper white.
-- Coral red.
-- Sage green.
-- Fog blue.
-- Soft mustard yellow.
-- Restrained rose.
+- Exhibition white `#F2F2EF`: home canvas and empty-state background.
+- Near-black ink `#181716`: primary headings, icons, and fine rules.
+- Anchor navy `#1F3048`: featured book covers and controlled visual weight.
+- Editorial pink `#E88AB1`: vivid book spines.
+- Forest green `#37623F`: grounding book spines.
+- Orange-red `#EA632F`: energetic book spines and the primary add action.
+- Signal red `#E34B4A`: narrow accent spines and focus indication.
+- Cobalt blue `#2F579E`: cool saturated book spines.
+- Mustard `#DFA93A`: warm contrasting book spines.
+- Burgundy `#3A1814`: deep secondary book spines.
+- Cool gray `#DDE1DF`: quiet book spines and neutral structure.
 
-Dark gray is reserved for type and thin dividers. No large surface is black.
+The palette is distributed as roughly 70-80% exhibition white, 15-25% book
+colors, and less than 5% command accents. Saturated colors belong to books and
+small controls, not large page surfaces.
+
+The month calendar and diary layer retain warm paper white where reading and
+the supplied paper template require it. The home route must not tint the
+calendar paper cool gray. Near-black is reserved for type, icons, thin dividers,
+and small book details; no large surface is black or navy. Decorative gradients
+are not part of this palette.
 
 ### Glass
 
 Frosted controls use:
 
-- Warm translucent white fills.
+- Neutral translucent white fills.
 - `backdrop-filter` blur in the 18-24 pixel range.
 - A bright highlight border.
-- Low-opacity, soft shadows.
+- Low-opacity neutral shadows without brown or beige tint.
 - Circular containers for familiar icon controls.
 - Pill containers only for navigation and text input.
+
+On the home route, the central add button uses orange-red and the active shelf
+control uses signal red or editorial pink. Other glass controls remain neutral
+so the book row carries the color.
 
 ### Typography
 
