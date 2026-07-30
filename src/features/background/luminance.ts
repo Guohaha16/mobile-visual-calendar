@@ -10,7 +10,13 @@ export async function classifyImageLuminance(
     return "light";
   }
 
-  const bitmap = await globalThis.createImageBitmap(blob);
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await globalThis.createImageBitmap(blob);
+  } catch {
+    return "light";
+  }
+
   try {
     const context = createSamplingContext();
     if (context === undefined) {
