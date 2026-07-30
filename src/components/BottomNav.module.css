@@ -11,23 +11,23 @@
   padding: 8px;
   align-items: center;
   gap: 7px;
-  background: rgb(255 252 247 / 68%);
-  border: 1px solid rgb(255 255 255 / 76%);
+  background: rgb(255 255 255 / 68%);
+  border: 1px solid rgb(255 255 255 / 82%);
   border-radius: var(--radius-round);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 86%),
-    0 16px 38px rgb(72 57 48 / 17%);
+    0 16px 38px rgb(24 23 22 / 15%);
   backdrop-filter: blur(24px) saturate(1.2);
   -webkit-backdrop-filter: blur(24px) saturate(1.2);
 }
 
 .add {
   color: #fff;
-  background: var(--color-coral);
+  background: var(--color-primary);
   transform: translateY(-7px);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 42%),
-    0 10px 24px rgb(191 83 70 / 28%);
+    0 10px 24px rgb(234 99 47 / 28%);
 }
 
 .add:hover {

@@ -57,7 +57,11 @@ export function AppShell() {
 
   return (
     <div className={styles.shell}>
-      <BackgroundScene assets={assets} preference={preference} />
+      <BackgroundScene
+        assets={assets}
+        preference={preference}
+        surface={route.view === "shelf" ? "editorial" : "paper"}
+      />
       <FrostedIconButton
         className={styles.backgroundButton}
         icon={Image}

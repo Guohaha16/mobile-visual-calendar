@@ -40,4 +40,24 @@ describe("MonthBook", () => {
     await user.click(screen.getByRole("button", { name: "Open July 2026" }));
     expect(onSelect).toHaveBeenCalledWith(7);
   });
+
+  it("applies the contrast-safe editorial treatment for July", () => {
+    render(
+      <MonthBook
+        focused={false}
+        mode="spine"
+        month={7}
+        onSelect={vi.fn()}
+        year={2026}
+      />,
+    );
+
+    const slot = screen.getByRole("button", {
+      name: "Open July 2026",
+    }).parentElement;
+    expect(slot).toHaveStyle({
+      "--book-ink": "#F7F6F2",
+      "--book-paper": "#1F3048",
+    });
+  });
 });

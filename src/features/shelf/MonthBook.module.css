@@ -16,14 +16,14 @@
   max-width: calc(var(--book-slot-width) - 16px);
   padding: 0;
   overflow: visible;
-  color: #3d3532;
+  color: var(--book-ink);
   background: var(--book-paper);
-  border: 1px solid rgb(79 63 56 / 18%);
+  border: 1px solid rgb(24 23 22 / 20%);
   border-radius: 3px 5px 5px 3px;
   box-shadow:
     inset 2px 0 rgb(255 255 255 / 36%),
-    inset -1px 0 rgb(57 43 38 / 13%),
-    0 12px 18px rgb(63 48 41 / 18%);
+    inset -1px 0 rgb(24 23 22 / 14%),
+    0 12px 18px rgb(24 23 22 / 18%);
   cursor: pointer;
   transform-origin: 50% 100%;
   user-select: none;
@@ -61,7 +61,7 @@
   z-index: 8;
   box-shadow:
     inset 2px 0 rgb(255 255 255 / 42%),
-    0 22px 30px rgb(63 48 41 / 26%);
+    0 22px 30px rgb(24 23 22 / 26%);
 }
 
 .depth {
@@ -71,7 +71,7 @@
   right: calc(var(--book-depth) * -0.32);
   bottom: -3px;
   width: calc(var(--book-depth) * 0.45);
-  background: color-mix(in srgb, var(--book-paper) 68%, #493934);
+  background: color-mix(in srgb, var(--book-paper) 72%, #181716);
   border-radius: 0 3px 3px 0;
   transform: skewY(-13deg);
   transform-origin: left;

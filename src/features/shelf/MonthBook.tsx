@@ -8,6 +8,7 @@ import {
 } from "motion/react";
 
 import { createBookGeometry } from "../../domain/shelf";
+import { getEditorialBookTreatment } from "./editorialPalette";
 import styles from "./MonthBook.module.css";
 
 export interface MonthCover {
@@ -42,24 +43,10 @@ const monthNames = [
   "December",
 ] as const;
 
-const paperColors = [
-  "#d4a092",
-  "#d9c17a",
-  "#9fb5aa",
-  "#b4c8d0",
-  "#c7a5ad",
-  "#e2b77e",
-  "#93aaa2",
-  "#c79b83",
-  "#aeb2c2",
-  "#d6c6a8",
-  "#a5b58e",
-  "#c99591",
-] as const;
-
 type BookStyle = CSSProperties & {
   "--book-depth": string;
   "--book-height": string;
+  "--book-ink": string;
   "--book-paper": string;
   "--book-slot-width": string;
 };
@@ -81,12 +68,14 @@ export function MonthBook({
     (value) => value * ((month - 6.5) / 2200),
   );
   const monthName = monthNames[month - 1] ?? "Month";
+  const treatment = getEditorialBookTreatment(month);
   const closedWidth =
     mode === "spine" ? Math.max(42, Math.round(geometry.width * 0.54)) : geometry.width;
   const style: BookStyle = {
     "--book-depth": `${geometry.depth}px`,
     "--book-height": `${geometry.height}px`,
-    "--book-paper": paperColors[month - 1] ?? "#d4a092",
+    "--book-ink": treatment.ink,
+    "--book-paper": treatment.paper,
     "--book-slot-width": `${geometry.width + 16}px`,
   };
 

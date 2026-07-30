@@ -6,10 +6,10 @@
   gap: 16px;
   overflow: hidden;
   color: var(--color-ink);
-  background: rgb(255 252 247 / 78%);
+  background: rgb(255 255 255 / 78%);
   border: 1px solid rgb(255 255 255 / 82%);
   border-radius: var(--radius-large) var(--radius-large) 0 0;
-  box-shadow: 0 -14px 40px rgb(72 57 48 / 16%);
+  box-shadow: 0 -14px 40px rgb(24 23 22 / 16%);
   backdrop-filter: blur(24px) saturate(1.15);
   -webkit-backdrop-filter: blur(24px) saturate(1.15);
 }
@@ -64,7 +64,7 @@
   padding: 0;
   overflow: hidden;
   aspect-ratio: 0.78;
-  background: var(--color-paper);
+  background: var(--color-canvas);
   border: 1px solid rgb(255 255 255 / 76%);
   border-radius: var(--radius-medium);
   cursor: pointer;
@@ -87,8 +87,8 @@
   bottom: 5px;
   left: 5px;
   padding: 4px 5px;
-  color: #312d2a;
-  background: rgb(255 252 247 / 80%);
+  color: var(--color-ink);
+  background: rgb(255 255 255 / 80%);
   border-radius: var(--radius-small);
   font-size: 0.68rem;
   line-height: 1;

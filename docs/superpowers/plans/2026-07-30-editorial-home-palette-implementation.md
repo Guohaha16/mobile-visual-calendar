@@ -109,6 +109,8 @@ Run the focused tests and expect all background and shell tests to pass.
 - Modify: `src/features/shelf/YearShelfPage.module.css`
 - Modify: `src/components/FrostedIconButton.module.css`
 - Modify: `src/components/BottomNav.module.css`
+- Modify: `src/features/background/BackgroundPicker.module.css`
+- Modify: `src/styles/themeContract.test.ts`
 - Modify: `src/styles/global.css`
 
 - [ ] **Step 1: Write a failing month treatment test**
@@ -130,8 +132,10 @@ Expected: FAIL because `MonthBook` still uses the pastel palette and fixed ink.
 
 Use `getEditorialBookTreatment(month)` in `MonthBook`. Replace warm brown shelf,
 glass, shadow, and command colors with the approved neutral structure,
-signal-red active state, and orange-red add action. Set the global canvas to
-exhibition white while preserving the paper token for calendar surfaces.
+signal-red active state, and orange-red add action. Neutralize the background
+picker sheet and date labels because the picker opens from the home route. Set
+the global canvas to exhibition white while preserving the paper token for
+calendar surfaces.
 
 - [ ] **Step 4: Verify components**
 

@@ -22,7 +22,27 @@ describe("BackgroundScene", () => {
       <BackgroundScene assets={[]} preference={{ mode: "random" }} />,
     );
 
-    expect(screen.getByTestId("background-scene")).toHaveClass("fallback");
+    expect(screen.getByTestId("background-scene"))
+      .toHaveClass("fallback");
+    expect(screen.getByTestId("background-scene")).toHaveAttribute(
+      "data-surface",
+      "paper",
+    );
+  });
+
+  it("exposes the cool editorial fallback for the bookshelf", () => {
+    render(
+      <BackgroundScene
+        assets={[]}
+        preference={{ mode: "random" }}
+        surface="editorial"
+      />,
+    );
+
+    expect(screen.getByTestId("background-scene")).toHaveAttribute(
+      "data-surface",
+      "editorial",
+    );
   });
 
   it("renders the resolved diary image with a light scrim", () => {

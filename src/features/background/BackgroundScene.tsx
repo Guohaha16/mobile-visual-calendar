@@ -9,6 +9,7 @@ interface BackgroundSceneProps {
   assets: readonly DiaryBackgroundAsset[];
   preference: BackgroundPreference;
   random?: () => number;
+  surface?: "editorial" | "paper";
 }
 
 const randomBackground = () => Math.random();
@@ -17,6 +18,7 @@ export function BackgroundScene({
   assets,
   preference,
   random = randomBackground,
+  surface = "paper",
 }: BackgroundSceneProps) {
   const [failedAssetId, setFailedAssetId] = useState<string>();
   const asset = useMemo(() => {
@@ -40,6 +42,7 @@ export function BackgroundScene({
     <div
       className={classes}
       data-luminance={visibleAsset?.luminance ?? "light"}
+      data-surface={surface}
       data-testid="background-scene"
     >
       {visibleAsset === undefined ? null : (

@@ -22,8 +22,16 @@ describe("AppShell", () => {
     const user = userEvent.setup();
     render(<AppShell />);
 
+    expect(screen.getByTestId("background-scene")).toHaveAttribute(
+      "data-surface",
+      "editorial",
+    );
     await user.click(screen.getByRole("button", { name: "Calendar" }));
     expect(window.location.pathname).toBe("/calendar/2026/07");
+    expect(screen.getByTestId("background-scene")).toHaveAttribute(
+      "data-surface",
+      "paper",
+    );
     expect(useAppStore.getState()).toMatchObject({
       route: { view: "calendar", year: 2026, month: 7 },
       selectedMonth: 7,

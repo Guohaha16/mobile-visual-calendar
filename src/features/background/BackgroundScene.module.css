@@ -3,20 +3,16 @@
   z-index: -1;
   inset: 0;
   overflow: hidden;
-  background: #f5eee6;
+  background: var(--color-paper);
   pointer-events: none;
 }
 
 .fallback {
-  background:
-    repeating-linear-gradient(
-      88deg,
-      rgb(129 111 92 / 2%) 0,
-      rgb(129 111 92 / 2%) 1px,
-      transparent 1px,
-      transparent 5px
-    ),
-    #f5eee6;
+  background: var(--color-paper);
+}
+
+.fallback[data-surface="editorial"] {
+  background: var(--color-canvas);
 }
 
 .image {
@@ -32,8 +28,16 @@
   background: rgb(250 247 240 / 34%);
 }
 
+.scene[data-surface="editorial"] .scrim {
+  background: rgb(242 242 239 / 34%);
+}
+
 .scene[data-luminance="dark"] .scrim {
   background: rgb(250 247 240 / 52%);
+}
+
+.scene[data-surface="editorial"][data-luminance="dark"] .scrim {
+  background: rgb(242 242 239 / 52%);
 }
 
 @keyframes reveal {

@@ -21,7 +21,7 @@
 
 .kicker {
   margin: 3px 0 5px;
-  color: rgb(52 48 46 / 66%);
+  color: rgb(24 23 22 / 66%);
   font-size: 0.65rem;
   font-weight: 750;
   letter-spacing: 0.12em;
@@ -47,7 +47,7 @@
 
 .monthCount {
   margin: 0 auto 7px;
-  color: rgb(52 48 46 / 62%);
+  color: rgb(24 23 22 / 62%);
   font-family: Georgia, "Times New Roman", serif;
   font-size: 0.75rem;
   letter-spacing: 0;
