@@ -143,7 +143,7 @@ export type SupabaseGatewayRepository = Pick<
 export type ThumbnailCreator = (
   blob: Blob,
   mimeType: string,
-) => Promise<Blob>;
+) => Promise<Blob | undefined>;
 
 export interface SupabaseGatewayDependencies {
   adapter: SupabaseGatewayAdapter | undefined;
@@ -463,7 +463,7 @@ export const createBrowserThumbnail: ThumbnailCreator = async (
   mimeType,
 ) => {
   if (!mimeType.startsWith("image/")) {
-    return blob;
+    return undefined;
   }
 
   let decoded: CanvasSource | undefined;
@@ -476,7 +476,7 @@ export const createBrowserThumbnail: ThumbnailCreator = async (
       decoded.width <= 0 ||
       decoded.height <= 0
     ) {
-      return blob;
+      return undefined;
     }
 
     const dimensions = boundedDimensions(decoded.width, decoded.height);
@@ -490,11 +490,10 @@ export const createBrowserThumbnail: ThumbnailCreator = async (
         decoded,
         dimensions.width,
         dimensions.height,
-      )) ??
-      blob
+      ))
     );
   } catch {
-    return blob;
+    return undefined;
   } finally {
     decoded?.dispose();
   }
@@ -695,6 +694,85 @@ const mapPreference = (
     };
   }
   throw new Error(`Invalid background preference mode: ${row.background_mode}`);
+};
+
+const errorStringProperty = (
+  error: object,
+  property: "name" | "code" | "message",
+): string => {
+  const value = Reflect.get(error, property);
+  return typeof value === "string" ? value : "";
+};
+
+const errorStatus = (error: object): number | undefined => {
+  const value = Reflect.get(error, "status");
+  return typeof value === "number" ? value : undefined;
+};
+
+const isExplicitTerminalAuthName = (name: string): boolean =>
+  name.startsWith("Auth") &&
+  name !== "AuthApiError" &&
+  name !== "AuthRetryableFetchError" &&
+  name !== "AuthUnknownError";
+
+const isRetryableAuthAdapterError = (error: object): boolean => {
+  const name = errorStringProperty(error, "name");
+  const code = errorStringProperty(error, "code").toLowerCase();
+  const message = errorStringProperty(error, "message");
+  const status = errorStatus(error);
+  if (
+    name === "AuthRetryableFetchError" ||
+    /(?:network|fetch|timeout|temporar|unavailable|rate.?limit)/i.test(
+      `${code} ${message}`,
+    )
+  ) {
+    return true;
+  }
+  if (isExplicitTerminalAuthName(name)) {
+    return false;
+  }
+  return (
+    status === 0 ||
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    (status !== undefined && status >= 500)
+  );
+};
+
+const isTerminalAuthAdapterError = (error: unknown): boolean => {
+  if (error === null || typeof error !== "object") {
+    return false;
+  }
+  if (isRetryableAuthAdapterError(error)) {
+    return false;
+  }
+
+  const name = errorStringProperty(error, "name");
+  const code = errorStringProperty(error, "code");
+  const message = errorStringProperty(error, "message");
+  const status = errorStatus(error);
+  return (
+    name.startsWith("Auth") ||
+    status === 401 ||
+    status === 403 ||
+    /(?:session|refresh.?token|jwt|auth).*(?:missing|expired|invalid|not.?found|revoked)/i.test(
+      `${code} ${message}`,
+    )
+  );
+};
+
+const rethrowSessionAdapterError = (
+  error: unknown,
+  action: "read" | "create",
+): never => {
+  if (isTerminalAuthAdapterError(error)) {
+    throw new CloudSessionPausedError(
+      `Supabase session ${action} requires authentication recovery`,
+      { cause: error },
+    );
+  }
+  throw error;
 };
 
 export class SupabaseGateway implements CloudGateway {
@@ -1028,7 +1106,12 @@ export class SupabaseGateway implements CloudGateway {
   private async resolveSession(
     adapter: SupabaseGatewayAdapter,
   ): Promise<{ userId: string }> {
-    const currentUserId = await adapter.getSessionUser();
+    let currentUserId: string | undefined;
+    try {
+      currentUserId = await adapter.getSessionUser();
+    } catch (error) {
+      rethrowSessionAdapterError(error, "read");
+    }
     if (isValidUserId(currentUserId)) {
       if (
         this.establishedUserId !== undefined &&
@@ -1051,7 +1134,12 @@ export class SupabaseGateway implements CloudGateway {
       throw new CloudSessionPausedError("Supabase session was lost");
     }
 
-    const anonymousUserId = await adapter.signInAnonymously();
+    let anonymousUserId: string | undefined;
+    try {
+      anonymousUserId = await adapter.signInAnonymously();
+    } catch (error) {
+      rethrowSessionAdapterError(error, "create");
+    }
     if (!isValidUserId(anonymousUserId)) {
       throw new CloudSessionPausedError(
         "Anonymous Supabase session is unavailable",

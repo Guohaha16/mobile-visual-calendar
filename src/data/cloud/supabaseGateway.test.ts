@@ -138,17 +138,25 @@ class FakeSupabaseAdapter implements SupabaseGatewayAdapter {
   applyDeleteError?: Error;
   snapshotError?: Error;
   downloadError?: Error;
+  getSessionError?: Error;
+  signInError?: Error;
 
   constructor(private readonly events: string[]) {}
 
   async getSessionUser(): Promise<string | undefined> {
     this.events.push("get-session");
+    if (this.getSessionError !== undefined) {
+      throw this.getSessionError;
+    }
     return this.sessionUserId;
   }
 
   async signInAnonymously(): Promise<string | undefined> {
     this.events.push("sign-in");
     this.signInCalls += 1;
+    if (this.signInError !== undefined) {
+      throw this.signInError;
+    }
     this.sessionUserId = this.anonymousUserId ?? undefined;
     return this.sessionUserId;
   }
@@ -417,6 +425,85 @@ describe("SupabaseGateway sessions", () => {
       CloudSessionPausedError,
     );
     expect(adapter.signInCalls).toBe(0);
+  });
+
+  it("maps a missing getSession rejection to a paused error with its cause", async () => {
+    const { adapter, gateway } = createContext();
+    const cause = Object.assign(new Error("Auth session missing"), {
+      name: "AuthSessionMissingError",
+      status: 400,
+    });
+    adapter.getSessionError = cause;
+
+    await expect(gateway.ensureSession()).rejects.toMatchObject({
+      name: "CloudSessionPausedError",
+      cause,
+    });
+    expect(adapter.signInCalls).toBe(0);
+  });
+
+  it("maps an expired anonymous sign-in rejection to a paused error with its cause", async () => {
+    const { adapter, gateway } = createContext();
+    const cause = Object.assign(new Error("JWT expired"), {
+      name: "AuthApiError",
+      code: "session_expired",
+      status: 401,
+    });
+    adapter.signInError = cause;
+
+    await expect(gateway.ensureSession()).rejects.toMatchObject({
+      name: "CloudSessionPausedError",
+      cause,
+    });
+  });
+
+  it("maps an invalid token response to paused even when its status is 500", async () => {
+    const { adapter, gateway } = createContext();
+    const cause = Object.assign(new Error("Auth session or user missing"), {
+      name: "AuthInvalidTokenResponseError",
+      status: 500,
+    });
+    adapter.getSessionError = cause;
+
+    await expect(gateway.ensureSession()).rejects.toMatchObject({
+      name: "CloudSessionPausedError",
+      cause,
+    });
+  });
+
+  it.each([
+    {
+      source: "getSession",
+      error: Object.assign(new Error("Service unavailable"), {
+        name: "AuthApiError",
+        status: 503,
+      }),
+    },
+    {
+      source: "signInAnonymously",
+      error: Object.assign(new Error("Failed to fetch"), {
+        name: "AuthRetryableFetchError",
+        status: 0,
+      }),
+    },
+    {
+      source: "getSession",
+      error: Object.assign(new Error("Network request temporarily unavailable"), {
+        name: "AuthApiError",
+      }),
+    },
+  ])("keeps retryable $source rejections generic", async ({ error, source }) => {
+    const { adapter, gateway } = createContext();
+    if (source === "getSession") {
+      adapter.getSessionError = error;
+    } else {
+      adapter.signInError = error;
+    }
+
+    await expect(gateway.ensureSession()).rejects.toBe(error);
+    await expect(gateway.ensureSession()).rejects.not.toBeInstanceOf(
+      CloudSessionPausedError,
+    );
   });
 });
 
@@ -966,12 +1053,59 @@ describe("SupabaseGateway snapshot pulls", () => {
     expect(broken?.localBlob).toBeUndefined();
   });
 
-  it("falls back to the downloaded blob when browser thumbnail APIs are unavailable", async () => {
+  it("returns no thumbnail when browser thumbnail APIs are unavailable", async () => {
     const downloaded = new Blob(["not-decodable"], { type: "image/png" });
 
     await expect(
       createBrowserThumbnail(downloaded, "image/png"),
-    ).resolves.toBe(downloaded);
+    ).resolves.toBeUndefined();
+  });
+
+  it("returns no thumbnail when image decoding rejects", async () => {
+    const downloaded = new Blob(["broken-image"], { type: "image/png" });
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn().mockRejectedValue(new Error("decode failed")),
+    );
+
+    try {
+      await expect(
+        createBrowserThumbnail(downloaded, "image/png"),
+      ).resolves.toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("returns no thumbnail when canvas rendering is unavailable", async () => {
+    const downloaded = new Blob(["decoded-image"], { type: "image/png" });
+    const close = vi.fn();
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn().mockResolvedValue({
+        width: 1200,
+        height: 900,
+        close,
+      }),
+    );
+    vi.stubGlobal(
+      "OffscreenCanvas",
+      class {
+        getContext() {
+          return null;
+        }
+      },
+    );
+    vi.stubGlobal("document", undefined);
+
+    try {
+      await expect(
+        createBrowserThumbnail(downloaded, "image/png"),
+      ).resolves.toBeUndefined();
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
