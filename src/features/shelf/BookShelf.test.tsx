@@ -20,6 +20,20 @@ describe("BookShelf", () => {
     ).toHaveAttribute("data-mode", "spine");
   });
 
+  it("prioritizes a diary image over the empty-book spine treatment", () => {
+    render(
+      <BookShelf
+        covers={new Map([[7, { id: "july-cover", url: "blob:july-cover" }]])}
+        onOpenMonth={vi.fn()}
+        year={2026}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Open July 2026" }),
+    ).toHaveAttribute("data-mode", "cover");
+  });
+
   it("focuses a book before opening its month", async () => {
     vi.useFakeTimers();
     const onOpenMonth = vi.fn();

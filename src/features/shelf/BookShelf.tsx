@@ -150,7 +150,9 @@ export function BookShelf({ covers, onOpenMonth, year }: BookShelfProps) {
               cover={covers.get(month)}
               focused={focusedMonth === month}
               key={month}
-              mode={getMonthBookMode(year, month)}
+              mode={
+                covers.has(month) ? "cover" : getMonthBookMode(year, month)
+              }
               month={month}
               onSelect={openFocusedMonth}
               shelfX={x}
