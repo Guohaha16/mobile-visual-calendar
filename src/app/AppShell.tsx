@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Image } from "lucide-react";
+import { AnimatePresence } from "motion/react";
 
 import { toLocalDateKey } from "../domain/date";
 import { BottomNav } from "../components/BottomNav";
@@ -13,6 +14,7 @@ import { BackgroundPicker } from "../features/background/BackgroundPicker";
 import { useDiaryBackgrounds } from "../features/background/useDiaryBackgrounds";
 import { YearShelfPage } from "../features/shelf/YearShelfPage";
 import { MonthCalendarPage } from "../features/calendar/MonthCalendarPage";
+import { DiarySheet } from "../features/diary/DiarySheet";
 import { applicationRepository } from "./appServices";
 import styles from "./AppShell.module.css";
 
@@ -20,6 +22,8 @@ export function AppShell() {
   const {
     isBackgroundPickerOpen,
     isDiaryOpen,
+    diaryDate,
+    closeDiary,
     navigate,
     openDiary,
     restoreRoute,
@@ -132,6 +136,17 @@ export function AppShell() {
                   }}
                 />
               ) : null}
+              <AnimatePresence>
+                {isDiaryOpen && diaryDate !== undefined ? (
+                  <DiarySheet
+                    date={diaryDate}
+                    key="diary-sheet"
+                    onClose={closeDiary}
+                    onDateChange={openDiary}
+                    repository={applicationRepository}
+                  />
+                ) : null}
+              </AnimatePresence>
             </div>,
             document.body,
           )}

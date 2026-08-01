@@ -43,6 +43,10 @@
   pointer-events: auto;
 }
 
+.sheetLayer[data-diary-open="true"] {
+  pointer-events: auto;
+}
+
 @media (min-width: 760px) {
   .main {
     padding-inline: 40px;

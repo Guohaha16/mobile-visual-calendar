@@ -76,12 +76,20 @@ export const useAppStore = create<AppState>((set) => ({
     set({ selectedMonth });
   },
   openDiary: (diaryDate) => {
-    set({ diaryDate, isDiaryOpen: true });
+    set({
+      diaryDate,
+      isBackgroundPickerOpen: false,
+      isDiaryOpen: true,
+    });
   },
   closeDiary: () => {
     set({ isDiaryOpen: false });
   },
   setBackgroundPickerOpen: (isBackgroundPickerOpen) => {
-    set({ isBackgroundPickerOpen });
+    set(
+      isBackgroundPickerOpen
+        ? { isBackgroundPickerOpen, isDiaryOpen: false }
+        : { isBackgroundPickerOpen },
+    );
   },
 }));

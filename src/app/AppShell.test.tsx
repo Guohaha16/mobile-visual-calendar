@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { toLocalDateKey } from "../domain/date";
 import { AppShell } from "./AppShell";
 import { useAppStore } from "./appStore";
 
@@ -80,6 +81,11 @@ describe("AppShell", () => {
       screen.getByRole("button", { name: "Add diary entry" }),
     );
     expect(sheetLayer).toHaveAttribute("data-diary-open", "true");
+    expect(
+      screen.getByRole("dialog", {
+        name: `Diary for ${toLocalDateKey(new Date())}`,
+      }),
+    ).toBeInTheDocument();
   });
 
   it("opens a calendar day through the shared diary state", async () => {
@@ -98,5 +104,8 @@ describe("AppShell", () => {
       diaryDate: "2026-07-29",
       isDiaryOpen: true,
     });
+    expect(
+      screen.getByRole("dialog", { name: "Diary for 2026-07-29" }),
+    ).toBeInTheDocument();
   });
 });

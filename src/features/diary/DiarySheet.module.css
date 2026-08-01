@@ -1,0 +1,90 @@
+.backdrop {
+  position: fixed;
+  z-index: 1;
+  inset: 0;
+  display: grid;
+  padding-top: calc(42px + env(safe-area-inset-top));
+  place-items: end center;
+  background: rgb(31 48 72 / 13%);
+  pointer-events: auto;
+}
+
+.sheet {
+  position: relative;
+  display: grid;
+  width: min(100%, 680px);
+  height: min(calc(100dvh - 42px - env(safe-area-inset-top)), 900px);
+  min-height: 420px;
+  overflow: hidden;
+  grid-template-rows: 18px auto minmax(0, 1fr);
+  color: var(--color-ink);
+  background: rgb(244 247 247 / 88%);
+  border: 1px solid rgb(255 255 255 / 82%);
+  border-bottom: 0;
+  border-radius: var(--radius-large) var(--radius-large) 0 0;
+  box-shadow: 0 -20px 54px rgb(31 48 72 / 18%);
+  outline: none;
+  backdrop-filter: blur(28px) saturate(1.12);
+  -webkit-backdrop-filter: blur(28px) saturate(1.12);
+}
+
+.handle {
+  width: 38px;
+  height: 4px;
+  margin-top: 8px;
+  justify-self: center;
+  background: rgb(31 48 72 / 22%);
+  border-radius: var(--radius-round);
+}
+
+.header {
+  display: flex;
+  min-height: 58px;
+  padding: 6px 14px 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgb(31 48 72 / 10%);
+}
+
+.dateField {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 10px;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-anchor);
+  background: rgb(255 255 255 / 58%);
+  border: 1px solid rgb(255 255 255 / 78%);
+  border-radius: var(--radius-medium);
+}
+
+.dateInput {
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.98rem;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.history {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+@media (min-width: 760px) {
+  .backdrop {
+    padding-top: 68px;
+  }
+
+  .sheet {
+    height: min(calc(100dvh - 68px), 900px);
+  }
+}
