@@ -5,6 +5,7 @@ import { motion, useReducedMotion } from "motion/react";
 
 import { FrostedIconButton } from "../../components/FrostedIconButton";
 import type { DiaryRepository } from "../../data/local/diaryRepository";
+import { DiaryComposer, type DiaryDraft } from "./DiaryComposer";
 import { DiaryTimeline } from "./DiaryTimeline";
 import styles from "./DiarySheet.module.css";
 
@@ -12,6 +13,7 @@ interface DiarySheetProps {
   date: string;
   onClose: () => void;
   onDateChange: (date: string) => void;
+  onSend?: (draft: DiaryDraft) => Promise<void> | void;
   repository: DiaryRepository;
 }
 
@@ -28,6 +30,7 @@ export function DiarySheet({
   date,
   onClose,
   onDateChange,
+  onSend,
   repository,
 }: DiarySheetProps) {
   const dialogRef = useRef<HTMLElement>(null);
@@ -142,6 +145,7 @@ export function DiarySheet({
         <div className={styles.history}>
           <DiaryTimeline entries={entries} />
         </div>
+        {onSend === undefined ? null : <DiaryComposer onSend={onSend} />}
       </motion.section>
     </motion.div>
   );

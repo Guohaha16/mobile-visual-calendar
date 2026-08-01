@@ -16,7 +16,7 @@
   height: min(calc(100dvh - 42px - env(safe-area-inset-top)), 900px);
   min-height: 420px;
   overflow: hidden;
-  grid-template-rows: 18px auto minmax(0, 1fr);
+  grid-template-rows: 18px auto minmax(0, 1fr) auto;
   color: var(--color-ink);
   background: rgb(244 247 247 / 88%);
   border: 1px solid rgb(255 255 255 / 82%);

@@ -1,0 +1,115 @@
+.composer {
+  display: grid;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  gap: 8px;
+  background: rgb(244 247 247 / 78%);
+  border-top: 1px solid rgb(31 48 72 / 10%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.previews {
+  display: flex;
+  min-width: 0;
+  padding: 2px;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.preview {
+  position: relative;
+  width: 74px;
+  height: 74px;
+  flex: 0 0 74px;
+  overflow: hidden;
+  background: var(--color-canvas);
+  border: 1px solid rgb(255 255 255 / 78%);
+  border-radius: var(--radius-medium);
+}
+
+.preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  place-items: center;
+  color: var(--color-anchor);
+  background: rgb(255 255 255 / 84%);
+  border: 1px solid rgb(255 255 255 / 90%);
+  border-radius: var(--radius-round);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.row {
+  display: grid;
+  align-items: end;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  gap: 8px;
+}
+
+.addImages {
+  position: relative;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  color: var(--color-anchor);
+  background: var(--color-glass);
+  border: 1px solid var(--color-glass-border);
+  border-radius: var(--radius-round);
+  box-shadow: var(--shadow-glass);
+  cursor: pointer;
+}
+
+.addImages input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 44px;
+  max-height: 168px;
+  padding: 10px 12px;
+  resize: none;
+  overflow-y: auto;
+  color: var(--color-ink);
+  background: rgb(255 255 255 / 70%);
+  border: 1px solid rgb(255 255 255 / 84%);
+  border-radius: var(--radius-medium);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  outline: none;
+}
+
+.textarea:focus-visible,
+.addImages:focus-within {
+  outline: 3px solid var(--color-active);
+  outline-offset: 2px;
+}
+
+.send {
+  color: white;
+  background: var(--color-coral);
+}
+
+.error {
+  margin: 0 52px;
+  color: var(--color-active);
+  font-size: 0.73rem;
+}
