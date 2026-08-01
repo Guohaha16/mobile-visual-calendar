@@ -74,6 +74,7 @@ export function CalendarPaper({
         </div>
         <div
           className={`${styles.grid} ${weekCount === 5 ? styles.fiveWeeks : ""}`}
+          data-testid="calendar-grid"
           data-week-count={weekCount}
         >
           {cells.map((cell) => (

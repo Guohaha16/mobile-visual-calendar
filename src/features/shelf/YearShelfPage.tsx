@@ -6,6 +6,7 @@ import type { DiaryRepository } from "../../data/local/diaryRepository";
 import { selectMonthCover } from "../../domain/shelf";
 import type { DiaryEntry } from "../../domain/types";
 import { FrostedIconButton } from "../../components/FrostedIconButton";
+import { createMediaObjectUrl } from "../diary/media";
 import { BookShelf } from "./BookShelf";
 import type { MonthCover } from "./MonthBook";
 import styles from "./YearShelfPage.module.css";
@@ -51,13 +52,15 @@ export function YearShelfPage({
       const blob = asset?.thumbnailBlob ?? asset?.localBlob;
       if (
         asset === undefined ||
-        blob === undefined ||
-        typeof URL.createObjectURL !== "function"
+        blob === undefined
       ) {
         continue;
       }
 
-      const url = URL.createObjectURL(blob);
+      const url = createMediaObjectUrl(blob);
+      if (url === undefined) {
+        continue;
+      }
       nextUrls.push(url);
       nextCovers.set(month, { id: asset.id, url });
     }

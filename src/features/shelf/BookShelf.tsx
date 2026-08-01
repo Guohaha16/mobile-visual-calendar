@@ -115,6 +115,7 @@ export function BookShelf({
     <div className={styles.stage}>
       <div
         className={styles.viewport}
+        data-testid="shelf-drag-target"
         onPointerDown={(event) => {
           pointerStartRef.current = event.clientX;
         }}
@@ -135,6 +136,7 @@ export function BookShelf({
         <motion.div
           aria-label={`${year} month bookshelf`}
           className={styles.track}
+          data-testid="book-track"
           drag="x"
           dragConstraints={{ left: leftConstraint, right: 0 }}
           dragElastic={reducedMotion ? 0 : 0.08}

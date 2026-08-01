@@ -41,7 +41,7 @@ export default defineConfig({
       },
       registerType: "prompt",
       workbox: {
-        globPatterns: ["**/*.{js,css,html,png,svg,ttf}"],
+        globPatterns: ["**/*.{js,css,html,svg}"],
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         navigateFallback: "/index.html",
       },
