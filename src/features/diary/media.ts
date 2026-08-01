@@ -12,6 +12,18 @@ export interface DiaryThumbnail {
   width: number;
 }
 
+export const createMediaObjectUrl = (blob: Blob): string | undefined => {
+  if (typeof URL.createObjectURL !== "function") {
+    return undefined;
+  }
+
+  try {
+    return URL.createObjectURL(blob);
+  } catch {
+    return undefined;
+  }
+};
+
 const assertImageFile = (file: File): void => {
   if (!file.type.startsWith("image/")) {
     throw new TypeError(`Unsupported diary media type: ${file.type || "unknown"}`);

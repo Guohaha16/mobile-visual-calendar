@@ -1,10 +1,14 @@
 import { useEffect, useMemo } from "react";
+import { Trash2 } from "lucide-react";
 
+import { FrostedIconButton } from "../../components/FrostedIconButton";
 import type { DiaryEntry } from "../../domain/types";
+import { createMediaObjectUrl } from "./media";
 import styles from "./DiaryTimeline.module.css";
 
 interface DiaryTimelineProps {
   entries: readonly DiaryEntry[];
+  onDelete?: (entryId: string) => Promise<void> | void;
 }
 
 const compareChronologically = (left: DiaryEntry, right: DiaryEntry): number =>
@@ -17,7 +21,7 @@ const formatTime = (timestamp: string): string =>
     minute: "2-digit",
   }).format(new Date(timestamp));
 
-export function DiaryTimeline({ entries }: DiaryTimelineProps) {
+export function DiaryTimeline({ entries, onDelete }: DiaryTimelineProps) {
   const orderedEntries = useMemo(
     () => [...entries].sort(compareChronologically),
     [entries],
@@ -30,13 +34,15 @@ export function DiaryTimeline({ entries }: DiaryTimelineProps) {
       const blob = asset.thumbnailBlob ?? asset.localBlob;
       if (
         !asset.mimeType.startsWith("image/") ||
-        blob === undefined ||
-        typeof URL.createObjectURL !== "function"
+        blob === undefined
       ) {
         continue;
       }
 
-      const url = URL.createObjectURL(blob);
+      const url = createMediaObjectUrl(blob);
+      if (url === undefined) {
+        continue;
+      }
       nextMediaUrls.set(asset.id, url);
       nextUrls.push(url);
     }
@@ -87,9 +93,21 @@ export function DiaryTimeline({ entries }: DiaryTimelineProps) {
             {entry.text.trim().length === 0 ? null : (
               <p className={styles.text}>{entry.text}</p>
             )}
-            <time className={styles.time} dateTime={entry.createdAt}>
-              {time}
-            </time>
+            <footer className={styles.footer}>
+              {onDelete === undefined ? null : (
+                <FrostedIconButton
+                  className={styles.delete}
+                  icon={Trash2}
+                  label={`Delete entry at ${time}`}
+                  onClick={() => {
+                    void onDelete(entry.id);
+                  }}
+                />
+              )}
+              <time className={styles.time} dateTime={entry.createdAt}>
+                {time}
+              </time>
+            </footer>
           </article>
         );
       })}

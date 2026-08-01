@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 
 import type { DiaryRepository } from "../../data/local/diaryRepository";
+import { createMediaObjectUrl } from "../diary/media";
 import { CalendarPaper } from "./CalendarPaper";
 import styles from "./MonthCalendarPage.module.css";
 
@@ -38,13 +39,15 @@ export function MonthCalendarPage({
       const blob = asset.thumbnailBlob ?? asset.localBlob;
       if (
         !asset.mimeType.startsWith("image/") ||
-        blob === undefined ||
-        typeof URL.createObjectURL !== "function"
+        blob === undefined
       ) {
         continue;
       }
 
-      const url = URL.createObjectURL(blob);
+      const url = createMediaObjectUrl(blob);
+      if (url === undefined) {
+        continue;
+      }
       nextImageUrls.set(asset.id, url);
       nextUrls.push(url);
     }

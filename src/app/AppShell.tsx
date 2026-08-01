@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
+import { useLiveQuery } from "dexie-react-hooks";
 import { Image } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 
@@ -15,10 +16,24 @@ import { useDiaryBackgrounds } from "../features/background/useDiaryBackgrounds"
 import { YearShelfPage } from "../features/shelf/YearShelfPage";
 import { MonthCalendarPage } from "../features/calendar/MonthCalendarPage";
 import { DiarySheet } from "../features/diary/DiarySheet";
+import { createThumbnail } from "../features/diary/media";
+import type { DiaryRepository } from "../data/local/diaryRepository";
+import type { SyncService, SyncStatus as SyncState } from "../data/sync/syncService";
 import { applicationRepository } from "./appServices";
 import styles from "./AppShell.module.css";
 
-export function AppShell() {
+interface AppShellProps {
+  repository?: DiaryRepository;
+  syncService?: SyncService;
+}
+
+const subscribeToNothing = () => () => {};
+const pausedSnapshot = (): SyncState => "paused";
+
+export function AppShell({
+  repository = applicationRepository,
+  syncService,
+}: AppShellProps) {
   const {
     isBackgroundPickerOpen,
     isDiaryOpen,
@@ -35,7 +50,35 @@ export function AppShell() {
     setSelectedYear,
   } = useAppStore();
   const { assets, preference, setPreference } =
-    useDiaryBackgrounds(applicationRepository);
+    useDiaryBackgrounds(repository);
+  const outbox = useLiveQuery(() => repository.listOutbox(), [repository], []);
+  const serviceStatus = useSyncExternalStore(
+    syncService === undefined
+      ? subscribeToNothing
+      : (listener) => syncService.subscribe(listener),
+    syncService === undefined
+      ? pausedSnapshot
+      : () => syncService.getSnapshot(),
+    pausedSnapshot,
+  );
+  const queuedStatus = outbox.some((operation) => operation.state === "failed")
+    ? "failed"
+    : outbox.some((operation) => operation.state === "syncing")
+      ? "syncing"
+      : outbox.length > 0
+        ? "waiting"
+        : "paused";
+  const syncStatus =
+    serviceStatus === "paused" && outbox.length > 0
+      ? queuedStatus
+      : serviceStatus;
+
+  useEffect(() => {
+    syncService?.start();
+    return () => {
+      syncService?.stop();
+    };
+  }, [syncService]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -83,19 +126,26 @@ export function AppShell() {
               navigate({ view: "calendar", year: selectedYear, month });
             }}
             onYearChange={setSelectedYear}
-            repository={applicationRepository}
+            repository={repository}
             year={selectedYear}
           />
         ) : (
           <MonthCalendarPage
             month={route.month}
             onOpenDay={openDiary}
-            repository={applicationRepository}
+            repository={repository}
             year={route.year}
           />
         )}
       </main>
-      <SyncStatus status="paused" />
+      <SyncStatus
+        onRetry={
+          syncService === undefined
+            ? undefined
+            : () => syncService.requestFlush()
+        }
+        status={syncStatus}
+      />
       <BottomNav
         activeView={route.view}
         onAdd={() => {
@@ -143,7 +193,30 @@ export function AppShell() {
                     key="diary-sheet"
                     onClose={closeDiary}
                     onDateChange={openDiary}
-                    repository={applicationRepository}
+                    onDelete={async (entryId) => {
+                      await repository.deleteEntry(entryId, new Date().toISOString());
+                      void syncService?.requestFlush();
+                    }}
+                    onSend={async ({ files, text }) => {
+                      const media = [];
+                      for (const file of files) {
+                        const prepared = await createThumbnail(file);
+                        media.push({
+                          height: prepared.height,
+                          localBlob: file,
+                          mimeType: file.type,
+                          thumbnailBlob: prepared.thumbnailBlob,
+                          width: prepared.width,
+                        });
+                      }
+                      await repository.createEntry({
+                        entryDate: diaryDate,
+                        media,
+                        text,
+                      });
+                      void syncService?.requestFlush();
+                    }}
+                    repository={repository}
                   />
                 ) : null}
               </AnimatePresence>

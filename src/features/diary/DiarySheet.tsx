@@ -13,6 +13,7 @@ interface DiarySheetProps {
   date: string;
   onClose: () => void;
   onDateChange: (date: string) => void;
+  onDelete?: (entryId: string) => Promise<void> | void;
   onSend?: (draft: DiaryDraft) => Promise<void> | void;
   repository: DiaryRepository;
 }
@@ -30,6 +31,7 @@ export function DiarySheet({
   date,
   onClose,
   onDateChange,
+  onDelete,
   onSend,
   repository,
 }: DiarySheetProps) {
@@ -143,7 +145,7 @@ export function DiarySheet({
           <FrostedIconButton icon={X} label="Close diary" onClick={onClose} />
         </header>
         <div className={styles.history}>
-          <DiaryTimeline entries={entries} />
+          <DiaryTimeline entries={entries} onDelete={onDelete} />
         </div>
         {onSend === undefined ? null : <DiaryComposer onSend={onSend} />}
       </motion.section>

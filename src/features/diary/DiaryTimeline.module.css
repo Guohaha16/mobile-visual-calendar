@@ -41,8 +41,30 @@
   white-space: pre-wrap;
 }
 
+.footer {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.delete {
+  width: 32px;
+  height: 32px;
+  margin-right: auto;
+  color: rgb(31 48 72 / 58%);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.delete:hover {
+  color: var(--color-active);
+  background: rgb(255 255 255 / 64%);
+}
+
 .time {
-  justify-self: end;
   color: rgb(31 48 72 / 55%);
   font-size: 0.69rem;
   font-variant-numeric: tabular-nums;

@@ -1,0 +1,40 @@
+.status {
+  position: fixed;
+  z-index: 60;
+  right: 0;
+  bottom: calc(92px + env(safe-area-inset-bottom));
+  left: 0;
+  display: flex;
+  width: max-content;
+  min-height: 28px;
+  margin-inline: auto;
+  padding: 5px 10px;
+  align-items: center;
+  gap: 6px;
+  color: rgb(31 48 72 / 68%);
+  background: rgb(245 248 249 / 72%);
+  border: 1px solid rgb(255 255 255 / 74%);
+  border-radius: var(--radius-round);
+  box-shadow: 0 8px 22px rgb(31 48 72 / 10%);
+  font-size: 0.69rem;
+  line-height: 1;
+  pointer-events: none;
+  backdrop-filter: blur(16px) saturate(1.1);
+  -webkit-backdrop-filter: blur(16px) saturate(1.1);
+}
+
+.status[data-state="failed"] {
+  color: var(--color-active);
+  pointer-events: auto;
+}
+
+.retry {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  place-items: center;
+}

@@ -39,7 +39,9 @@ describe("DiaryComposer", () => {
       .toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Selected image second.jpg" }))
       .toBeInTheDocument();
-    await user.type(screen.getByRole("textbox", { name: "Diary text" }), longText);
+    fireEvent.change(screen.getByRole("textbox", { name: "Diary text" }), {
+      target: { value: longText },
+    });
     await user.click(screen.getByRole("button", { name: "Send diary entry" }));
 
     expect(onSend).toHaveBeenCalledWith({ text: longText, files: [first, second] });

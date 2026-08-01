@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 
 import type { DiaryEntry } from "../../domain/types";
 import { DiaryTimeline } from "./DiaryTimeline";
@@ -41,5 +42,21 @@ describe("DiaryTimeline", () => {
   it("shows a quiet empty state", () => {
     render(<DiaryTimeline entries={[]} />);
     expect(screen.getByText("No entries for this day")).toBeInTheDocument();
+  });
+
+  it("deletes a record directly without opening a confirmation dialog", async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn();
+    render(
+      <DiaryTimeline
+        entries={[entry("entry-1", "2026-07-29T09:42:00.000Z", "Today")]}
+        onDelete={onDelete}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Delete entry at/ }));
+
+    expect(onDelete).toHaveBeenCalledWith("entry-1");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });
