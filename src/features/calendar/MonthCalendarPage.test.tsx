@@ -12,25 +12,19 @@ const createRepository = () =>
   }) as unknown as DiaryRepository;
 
 describe("MonthCalendarPage", () => {
-  it("moves between months with year rollover", async () => {
-    const onNavigateMonth = vi.fn();
-    const user = userEvent.setup();
-
+  it("keeps the selected month fixed without month-switch controls", () => {
     render(
       <MonthCalendarPage
         month={1}
-        onNavigateMonth={onNavigateMonth}
         onOpenDay={vi.fn()}
         repository={createRepository()}
         year={2026}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Previous month" }));
-    await user.click(screen.getByRole("button", { name: "Next month" }));
-
-    expect(onNavigateMonth).toHaveBeenNthCalledWith(1, 2025, 12);
-    expect(onNavigateMonth).toHaveBeenNthCalledWith(2, 2026, 2);
+    expect(screen.queryByRole("button", { name: "Previous month" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next month" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "January 2026" })).toBeInTheDocument();
   });
 
   it("opens the selected calendar date", async () => {
@@ -40,7 +34,6 @@ describe("MonthCalendarPage", () => {
     render(
       <MonthCalendarPage
         month={7}
-        onNavigateMonth={vi.fn()}
         onOpenDay={onOpenDay}
         repository={createRepository()}
         year={2026}
@@ -57,7 +50,6 @@ describe("MonthCalendarPage", () => {
     render(
       <MonthCalendarPage
         month={7}
-        onNavigateMonth={vi.fn()}
         onOpenDay={vi.fn()}
         repository={repository}
         year={2026}

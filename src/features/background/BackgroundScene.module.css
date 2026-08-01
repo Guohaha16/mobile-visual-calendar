@@ -3,12 +3,12 @@
   z-index: -1;
   inset: 0;
   overflow: hidden;
-  background: var(--color-paper);
+  background: var(--color-canvas);
   pointer-events: none;
 }
 
 .fallback {
-  background: var(--color-paper);
+  background: var(--color-canvas);
 }
 
 .fallback[data-surface="editorial"] {
@@ -25,7 +25,7 @@
 .scrim {
   position: absolute;
   inset: 0;
-  background: rgb(250 247 240 / 34%);
+  background: rgb(221 225 223 / 46%);
 }
 
 .scene[data-surface="editorial"] .scrim {
@@ -33,7 +33,7 @@
 }
 
 .scene[data-luminance="dark"] .scrim {
-  background: rgb(250 247 240 / 52%);
+  background: rgb(221 225 223 / 62%);
 }
 
 .scene[data-surface="editorial"][data-luminance="dark"] .scrim {

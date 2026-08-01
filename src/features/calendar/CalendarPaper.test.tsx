@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CalendarPaper } from "./CalendarPaper";
 
 describe("CalendarPaper", () => {
-  it("renders the supplied paper asset and a stable six-week grid", () => {
+  it("removes an unused trailing week from a five-week month", () => {
     const { container } = render(
       <CalendarPaper
         entries={[]}
@@ -19,10 +19,32 @@ describe("CalendarPaper", () => {
       "src",
       "/assets/calendar-paper-template.png",
     );
-    expect(container.querySelectorAll("[data-calendar-cell]")).toHaveLength(42);
+    expect(screen.getByTestId("calendar-book")).toHaveAttribute(
+      "src",
+      "/assets/calendar-book.png",
+    );
+    expect(container.querySelectorAll("[data-calendar-cell]")).toHaveLength(35);
+    expect(container.querySelector("[data-week-count]"))
+      .toHaveAttribute("data-week-count", "5");
     expect(
       screen.getAllByRole("button", { name: /Open day 2026-07-/ }),
     ).toHaveLength(31);
+  });
+
+  it("keeps the sixth week when the month needs it", () => {
+    const { container } = render(
+      <CalendarPaper
+        entries={[]}
+        imageUrls={new Map()}
+        month={8}
+        onOpenDay={vi.fn()}
+        year={2026}
+      />,
+    );
+
+    expect(container.querySelectorAll("[data-calendar-cell]")).toHaveLength(42);
+    expect(container.querySelector("[data-week-count]"))
+      .toHaveAttribute("data-week-count", "6");
   });
 
   it("labels the month and all seven weekday columns", () => {

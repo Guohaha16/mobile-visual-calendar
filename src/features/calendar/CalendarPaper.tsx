@@ -40,12 +40,25 @@ export function CalendarPaper({
     dayEntries.push(entry);
     entriesByDate.set(entry.entryDate, dayEntries);
   }
+  const monthGrid = buildMonthGrid(year, month);
+  const cells = monthGrid.slice(35).every((cell) => !cell.inMonth)
+    ? monthGrid.slice(0, 35)
+    : monthGrid;
+  const weekCount = cells.length / 7;
 
   return (
     <section
       aria-label={`${MONTHS[month - 1]} ${year} paper calendar`}
       className={styles.paper}
     >
+      <img
+        alt=""
+        aria-hidden="true"
+        className={styles.book}
+        data-testid="calendar-book"
+        draggable={false}
+        src="/assets/calendar-book.png"
+      />
       <img
         alt="Calendar paper"
         className={styles.template}
@@ -59,8 +72,11 @@ export function CalendarPaper({
             <span key={weekday}>{weekday}</span>
           ))}
         </div>
-        <div className={styles.grid}>
-          {buildMonthGrid(year, month).map((cell) => (
+        <div
+          className={`${styles.grid} ${weekCount === 5 ? styles.fiveWeeks : ""}`}
+          data-week-count={weekCount}
+        >
+          {cells.map((cell) => (
             <DayCell
               cell={cell}
               entries={entriesByDate.get(cell.dateKey) ?? []}

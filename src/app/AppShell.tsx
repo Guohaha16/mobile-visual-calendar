@@ -85,9 +85,6 @@ export function AppShell() {
         ) : (
           <MonthCalendarPage
             month={route.month}
-            onNavigateMonth={(year, month) => {
-              navigate({ view: "calendar", year, month });
-            }}
             onOpenDay={openDiary}
             repository={applicationRepository}
             year={route.year}

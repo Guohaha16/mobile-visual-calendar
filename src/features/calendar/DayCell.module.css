@@ -5,11 +5,11 @@
   min-height: 0;
   padding: 0;
   overflow: hidden;
-  color: #24201c;
-  background: rgb(255 253 247 / 20%);
+  color: var(--color-anchor);
+  background: rgb(242 242 239 / 20%);
   border: 0;
-  border-right: 1px solid rgb(50 44 38 / 34%);
-  border-bottom: 1px solid rgb(50 44 38 / 34%);
+  border-right: 1px solid rgb(31 48 72 / 30%);
+  border-bottom: 1px solid rgb(31 48 72 / 30%);
   border-radius: 0;
   cursor: pointer;
   isolation: isolate;
@@ -39,7 +39,7 @@
 
 .outside {
   cursor: default;
-  background: rgb(255 253 247 / 8%);
+  background: rgb(221 225 223 / 12%);
 }
 
 .image {
@@ -55,10 +55,10 @@
   display: -webkit-box;
   padding: 17px 4px 3px;
   overflow: hidden;
-  color: #29231f;
+  color: var(--color-anchor);
   font-family: "Ma Shan Zheng", "KaiTi", "STKaiti", cursive;
-  font-size: 9px;
-  line-height: 1.22;
+  font-size: 10px;
+  line-height: 1.28;
   text-align: left;
   text-wrap: pretty;
   -webkit-box-orient: vertical;
@@ -74,9 +74,9 @@
   height: 14px;
   padding: 0 3px;
   place-items: center;
-  color: #2b2723;
-  background: rgb(247 241 231 / 74%);
-  border: 1px solid rgb(64 57 51 / 17%);
+  color: var(--color-anchor);
+  background: rgb(242 242 239 / 78%);
+  border: 1px solid rgb(31 48 72 / 16%);
   border-radius: 999px;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 8px;

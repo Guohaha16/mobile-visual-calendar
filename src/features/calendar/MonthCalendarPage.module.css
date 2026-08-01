@@ -3,28 +3,11 @@
   width: min(100%, 620px);
   min-height: calc(100dvh - 126px);
   margin-inline: auto;
-  align-content: start;
-  grid-template-rows: 44px auto;
-}
-
-.controls {
-  display: grid;
-  width: min(100%, 560px);
-  margin-inline: auto;
-  align-items: center;
-  grid-template-columns: 48px minmax(0, 1fr) 48px;
-}
-
-.rule {
-  width: min(100%, 180px);
-  height: 1px;
-  margin-inline: auto;
-  background: rgb(37 33 29 / 24%);
+  place-items: center;
 }
 
 @media (min-width: 760px) {
   .page {
     min-height: calc(100dvh - 150px);
-    grid-template-rows: 52px auto;
   }
 }

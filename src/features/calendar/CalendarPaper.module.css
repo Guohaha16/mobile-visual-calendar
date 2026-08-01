@@ -1,35 +1,51 @@
 .paper {
   position: relative;
-  width: min(100%, 560px);
+  width: min(calc(100% + 72px), 640px);
   aspect-ratio: 1046 / 1503;
-  margin: 0 auto;
-  filter: drop-shadow(0 18px 34px rgb(24 23 22 / 22%));
+  margin: 0;
+  justify-self: center;
   user-select: none;
+}
+
+.book {
+  position: absolute;
+  z-index: 0;
+  top: 15%;
+  left: 5%;
+  width: 90%;
+  height: auto;
+  filter: drop-shadow(0 14px 14px rgb(31 48 72 / 24%));
+  transform: rotate(-5deg);
+  transform-origin: 52% 45%;
+  pointer-events: none;
 }
 
 .template {
   position: absolute;
+  z-index: 1;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  filter: drop-shadow(0 18px 28px rgb(31 48 72 / 16%));
   pointer-events: none;
 }
 
 .content {
   position: absolute;
-  inset: 18.2% 10.25% 5.65%;
+  z-index: 2;
+  inset: 18.2% 12.8% 9.5%;
   display: grid;
   min-height: 0;
-  grid-template-rows: 8.7% 4.8% minmax(0, 1fr);
+  grid-template-rows: 10% 6.8% minmax(0, 1fr);
 }
 
 .month {
   align-self: center;
   margin: 0;
-  color: #211d19;
+  color: var(--color-anchor);
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 25px;
+  font-size: 28px;
   font-weight: 500;
   line-height: 1;
   text-align: right;
@@ -37,7 +53,7 @@
 
 .month span {
   margin-left: 4px;
-  color: #8d665c;
+  color: var(--color-coral);
   font-size: 11px;
   font-style: italic;
   vertical-align: top;
@@ -48,8 +64,8 @@
   grid-template-columns: repeat(7, minmax(0, 1fr));
   align-items: end;
   padding-bottom: 4px;
-  color: #28231f;
-  font-size: 8px;
+  color: var(--color-anchor);
+  font-size: 9px;
   line-height: 1;
   text-align: center;
 }
@@ -60,13 +76,17 @@
   overflow: hidden;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   grid-template-rows: repeat(6, minmax(0, 1fr));
-  background: rgb(249 245 237 / 12%);
-  border: 1px solid rgb(50 44 38 / 44%);
+  background: rgb(242 242 239 / 18%);
+  border: 1px solid rgb(31 48 72 / 38%);
+}
+
+.fiveWeeks {
+  grid-template-rows: repeat(5, minmax(0, 1fr));
 }
 
 @media (min-width: 480px) {
   .month {
-    font-size: 31px;
+    font-size: 34px;
   }
 
   .month span {
