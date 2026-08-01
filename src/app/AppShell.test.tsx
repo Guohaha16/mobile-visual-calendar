@@ -81,4 +81,22 @@ describe("AppShell", () => {
     );
     expect(sheetLayer).toHaveAttribute("data-diary-open", "true");
   });
+
+  it("opens a calendar day through the shared diary state", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/calendar/2026/07");
+    useAppStore.setState({
+      route: { view: "calendar", year: 2026, month: 7 },
+      selectedMonth: 7,
+      selectedYear: 2026,
+    });
+
+    render(<AppShell />);
+
+    await user.click(screen.getByRole("button", { name: "Open day 2026-07-29" }));
+    expect(useAppStore.getState()).toMatchObject({
+      diaryDate: "2026-07-29",
+      isDiaryOpen: true,
+    });
+  });
 });

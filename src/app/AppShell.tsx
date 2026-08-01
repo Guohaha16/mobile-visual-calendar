@@ -12,6 +12,7 @@ import { BackgroundScene } from "../features/background/BackgroundScene";
 import { BackgroundPicker } from "../features/background/BackgroundPicker";
 import { useDiaryBackgrounds } from "../features/background/useDiaryBackgrounds";
 import { YearShelfPage } from "../features/shelf/YearShelfPage";
+import { MonthCalendarPage } from "../features/calendar/MonthCalendarPage";
 import { applicationRepository } from "./appServices";
 import styles from "./AppShell.module.css";
 
@@ -82,15 +83,15 @@ export function AppShell() {
             year={selectedYear}
           />
         ) : (
-          <section
-            aria-label={`${route.year}-${String(route.month).padStart(2, "0")} calendar`}
-            className={styles.view}
-          >
-            <h1 className={styles.year}>
-              {route.year}.{String(route.month).padStart(2, "0")}
-            </h1>
-            <div aria-hidden="true" className={styles.calendarHint} />
-          </section>
+          <MonthCalendarPage
+            month={route.month}
+            onNavigateMonth={(year, month) => {
+              navigate({ view: "calendar", year, month });
+            }}
+            onOpenDay={openDiary}
+            repository={applicationRepository}
+            year={route.year}
+          />
         )}
       </main>
       <SyncStatus status="paused" />

@@ -28,33 +28,6 @@
   }
 }
 
-.view {
-  display: grid;
-  width: min(100%, 560px);
-  min-height: calc(100dvh - 126px);
-  margin-inline: auto;
-  align-content: start;
-}
-
-.year {
-  margin: 0;
-  color: var(--color-ink);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 2.75rem;
-  font-weight: 400;
-  letter-spacing: 0;
-  line-height: 0.95;
-}
-
-.calendarHint {
-  width: min(100%, 560px);
-  aspect-ratio: 0.72;
-  margin: 28px auto 0;
-  background: rgb(255 252 247 / 62%);
-  border: 1px solid rgb(255 255 255 / 76%);
-  box-shadow: var(--shadow-glass);
-}
-
 .sheetLayer {
   position: fixed;
   z-index: 40;
@@ -75,7 +48,4 @@
     padding-inline: 40px;
   }
 
-  .year {
-    font-size: 5.5rem;
-  }
 }
