@@ -1,4 +1,16 @@
 :root {
+  --font-calendar-hand: "Calendar Hand", "KaiTi", "STKaiti", cursive;
+}
+
+@font-face {
+  font-family: "Calendar Hand";
+  src: url("/fonts/MaShanZheng-Regular.ttf") format("truetype");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+:root {
   color: var(--color-ink);
   background: var(--color-canvas);
   color-scheme: light;

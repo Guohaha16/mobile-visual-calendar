@@ -56,7 +56,7 @@
   padding: 17px 4px 3px;
   overflow: hidden;
   color: var(--color-anchor);
-  font-family: "Ma Shan Zheng", "KaiTi", "STKaiti", cursive;
+  font-family: var(--font-calendar-hand);
   font-size: 10px;
   line-height: 1.28;
   text-align: left;
