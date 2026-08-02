@@ -1,3 +1,5 @@
+import type { Page } from "@playwright/test";
+
 import {
   ONE_PIXEL_PNG,
   ensureServiceWorkerControl,
@@ -8,6 +10,15 @@ import {
 
 const LONG_TEXT =
   "This is a longer diary record that uses the full conversation width. ".repeat(8);
+
+const disableSecureContextUuid = async (page: Page): Promise<void> => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Crypto.prototype, "randomUUID", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+};
 
 test("opens from both triggers and switches the bound date", async ({ page }) => {
   await page.goto("/calendar/2026/07");
@@ -26,10 +37,32 @@ test("opens from both triggers and switches the bound date", async ({ page }) =>
   await expectNoHorizontalOverflow(page);
 });
 
+test("saves a text-only record without the secure-context UUID API", async ({
+  page,
+}) => {
+  const text = "A text-only diary entry from a phone on the local network.";
+  await disableSecureContextUuid(page);
+  await page.goto("/calendar/2026/07");
+  await page.getByRole("button", { name: "Open day 2026-07-28" }).click();
+  await page.getByLabel("Diary text").fill(text);
+  await page.getByRole("button", { name: "Send diary entry" }).click();
+
+  const diaryHistory = page.getByRole("feed", { name: "Diary history" });
+  await expect(diaryHistory.getByText(text)).toBeVisible();
+  await expect(page.getByText("Couldn't save this entry")).toHaveCount(0);
+
+  await page.reload();
+  await page.getByRole("button", { name: "Open day 2026-07-28" }).click();
+  await expect(
+    page.getByRole("feed", { name: "Diary history" }).getByText(text),
+  ).toBeVisible();
+});
+
 test("keeps image-first records through offline reload and deletes immediately", async ({
   context,
   page,
 }) => {
+  await disableSecureContextUuid(page);
   await page.addInitScript(() => {
     Object.defineProperty(window, "createImageBitmap", {
       configurable: true,

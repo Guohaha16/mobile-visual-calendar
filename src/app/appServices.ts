@@ -1,5 +1,6 @@
 import { createVisualDiaryDb } from "../data/local/db";
 import { createDiaryRepository } from "../data/local/diaryRepository";
+import { generateUuid } from "./id";
 
 const LOCAL_DEMO_USER_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -12,7 +13,7 @@ export const applicationRepository = createDiaryRepository(
   applicationDatabase,
   {
     clock: () => new Date().toISOString(),
-    generateId: () => crypto.randomUUID(),
+    generateId: generateUuid,
     userId: LOCAL_DEMO_USER_ID,
   },
 );
