@@ -5,10 +5,17 @@ export interface PreparedDiaryImage {
 }
 
 export interface DiaryThumbnail {
-  height: number;
+  height?: number;
   thumbnailBlob: Blob;
-  thumbnailHeight: number;
-  thumbnailWidth: number;
+  thumbnailHeight?: number;
+  thumbnailWidth?: number;
+  width?: number;
+}
+
+interface DecodedImage {
+  dispose: () => void;
+  height: number;
+  source: CanvasImageSource;
   width: number;
 }
 
@@ -33,12 +40,73 @@ const assertImageFile = (file: File): void => {
 export const filterImageFiles = (files: Iterable<File>): File[] =>
   Array.from(files).filter((file) => file.type.startsWith("image/"));
 
-const decodeImage = async (file: File): Promise<ImageBitmap> => {
+const decodeWithImageElement = (file: File): Promise<DecodedImage> =>
+  new Promise((resolve, reject) => {
+    if (
+      typeof Image !== "function" ||
+      typeof URL.createObjectURL !== "function"
+    ) {
+      reject(new Error("This browser cannot decode diary images"));
+      return;
+    }
+
+    let url: string;
+    try {
+      url = URL.createObjectURL(file);
+    } catch (error) {
+      reject(error);
+      return;
+    }
+
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => {
+      const width = image.naturalWidth;
+      const height = image.naturalHeight;
+      if (width <= 0 || height <= 0) {
+        URL.revokeObjectURL(url);
+        reject(new Error("The selected diary image has no visible dimensions"));
+        return;
+      }
+      resolve({
+        dispose: () => {
+          URL.revokeObjectURL(url);
+          image.removeAttribute("src");
+        },
+        height,
+        source: image,
+        width,
+      });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("This browser cannot decode the selected diary image"));
+    };
+    image.src = url;
+  });
+
+const decodeImage = async (file: File): Promise<DecodedImage> => {
   assertImageFile(file);
-  if (typeof createImageBitmap !== "function") {
-    throw new Error("This browser cannot decode diary images");
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file);
+      if (bitmap.width > 0 && bitmap.height > 0) {
+        return {
+          dispose: () => {
+            bitmap.close();
+          },
+          height: bitmap.height,
+          source: bitmap,
+          width: bitmap.width,
+        };
+      }
+      bitmap.close();
+    } catch {
+      // Older mobile browsers use the image-element decoder below.
+    }
   }
-  return createImageBitmap(file);
+
+  return decodeWithImageElement(file);
 };
 
 export const prepareDiaryImages = async (
@@ -47,31 +115,41 @@ export const prepareDiaryImages = async (
   const prepared: PreparedDiaryImage[] = [];
 
   for (const file of filterImageFiles(files)) {
-    const bitmap = await decodeImage(file);
-    prepared.push({ file, height: bitmap.height, width: bitmap.width });
-    bitmap.close();
+    const image = await decodeImage(file);
+    prepared.push({ file, height: image.height, width: image.width });
+    image.dispose();
   }
 
   return prepared;
 };
 
-const canvasToWebp = (
+const canvasToBlob = (
   canvas: HTMLCanvasElement,
+  type: string,
   quality: number,
-): Promise<Blob> =>
-  new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (blob === null) {
-          reject(new Error("Unable to create diary image thumbnail"));
-          return;
-        }
-        resolve(blob);
-      },
-      "image/webp",
-      quality,
-    );
+): Promise<Blob | undefined> =>
+  new Promise((resolve) => {
+    try {
+      canvas.toBlob((blob) => resolve(blob ?? undefined), type, quality);
+    } catch {
+      resolve(undefined);
+    }
   });
+
+const originalImageFallback = (
+  file: File,
+  image?: Pick<DecodedImage, "height" | "width">,
+): DiaryThumbnail => ({
+  ...(image === undefined
+    ? {}
+    : {
+        height: image.height,
+        thumbnailHeight: image.height,
+        thumbnailWidth: image.width,
+        width: image.width,
+      }),
+  thumbnailBlob: file,
+});
 
 export const createThumbnail = async (
   file: File,
@@ -82,29 +160,40 @@ export const createThumbnail = async (
     throw new RangeError("Thumbnail edge must be positive");
   }
 
-  const bitmap = await decodeImage(file);
+  let image: DecodedImage;
   try {
-    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
-    const thumbnailWidth = Math.max(1, Math.round(bitmap.width * scale));
-    const thumbnailHeight = Math.max(1, Math.round(bitmap.height * scale));
+    image = await decodeImage(file);
+  } catch {
+    return originalImageFallback(file);
+  }
+
+  try {
+    const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+    const thumbnailWidth = Math.max(1, Math.round(image.width * scale));
+    const thumbnailHeight = Math.max(1, Math.round(image.height * scale));
     const canvas = document.createElement("canvas");
     canvas.width = thumbnailWidth;
     canvas.height = thumbnailHeight;
     const context = canvas.getContext("2d");
     if (context === null) {
-      throw new Error("Unable to prepare diary image thumbnail");
+      return originalImageFallback(file, image);
     }
 
-    context.drawImage(bitmap, 0, 0, thumbnailWidth, thumbnailHeight);
-    const thumbnailBlob = await canvasToWebp(canvas, quality);
+    context.drawImage(image.source, 0, 0, thumbnailWidth, thumbnailHeight);
+    const thumbnailBlob =
+      (await canvasToBlob(canvas, "image/webp", quality)) ??
+      (await canvasToBlob(canvas, "image/jpeg", quality));
+    if (thumbnailBlob === undefined) {
+      return originalImageFallback(file, image);
+    }
     return {
-      height: bitmap.height,
+      height: image.height,
       thumbnailBlob,
       thumbnailHeight,
       thumbnailWidth,
-      width: bitmap.width,
+      width: image.width,
     };
   } finally {
-    bitmap.close();
+    image.dispose();
   }
 };

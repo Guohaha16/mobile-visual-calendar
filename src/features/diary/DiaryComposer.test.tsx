@@ -31,7 +31,7 @@ describe("DiaryComposer", () => {
 
     const input = screen.getByLabelText("Add diary images");
     expect(input).toHaveAttribute("accept", "image/*");
-    expect(input).toHaveAttribute("capture", "environment");
+    expect(input).not.toHaveAttribute("capture");
     expect(input).toHaveAttribute("multiple");
     await user.upload(input, [first, second]);
 

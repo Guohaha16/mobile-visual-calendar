@@ -13,7 +13,10 @@ test("opens from both triggers and switches the bound date", async ({ page }) =>
   await page.goto("/calendar/2026/07");
 
   await page.getByRole("button", { name: "Open day 2026-07-18" }).click();
-  await expect(page.getByRole("dialog", { name: "Diary for 2026-07-18" })).toBeVisible();
+  const diary = page.getByRole("dialog", { name: "Diary for 2026-07-18" });
+  await expect(diary).toBeVisible();
+  await expect(diary).toBeFocused();
+  await expect(page.getByLabel("Diary date")).not.toBeFocused();
   await page.getByLabel("Diary date").fill("2026-07-19");
   await expect(page.getByRole("dialog", { name: "Diary for 2026-07-19" })).toBeVisible();
   await page.getByRole("button", { name: "Close diary" }).click();
@@ -27,11 +30,30 @@ test("keeps image-first records through offline reload and deletes immediately",
   context,
   page,
 }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "createImageBitmap", {
+      configurable: true,
+      value: undefined,
+    });
+    const nativeToBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function toBlob(
+      callback,
+      type,
+      quality,
+    ) {
+      if (type === "image/webp") {
+        callback(null);
+        return;
+      }
+      nativeToBlob.call(this, callback, type, quality);
+    };
+  });
   await page.goto("/calendar/2026/07");
   await ensureServiceWorkerControl(page);
   await page.getByRole("button", { name: "Open day 2026-07-29" }).click();
 
   const imageInput = page.getByLabel("Add diary images");
+  await expect(imageInput).not.toHaveAttribute("capture");
   await imageInput.setInputFiles([
     { buffer: ONE_PIXEL_PNG, mimeType: "image/png", name: "first.png" },
     { buffer: ONE_PIXEL_PNG, mimeType: "image/png", name: "second.png" },

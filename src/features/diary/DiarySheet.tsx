@@ -36,7 +36,6 @@ export function DiarySheet({
   repository,
 }: DiarySheetProps) {
   const dialogRef = useRef<HTMLElement>(null);
-  const dateInputRef = useRef<HTMLInputElement>(null);
   const onCloseRef = useRef(onClose);
   const reduceMotion = useReducedMotion();
   const entries = useLiveQuery(
@@ -53,7 +52,7 @@ export function DiarySheet({
     const previouslyFocused = document.activeElement;
     const previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    dateInputRef.current?.focus();
+    dialogRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -137,7 +136,6 @@ export function DiarySheet({
                   onDateChange(event.target.value);
                 }
               }}
-              ref={dateInputRef}
               type="date"
               value={date}
             />

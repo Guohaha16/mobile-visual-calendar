@@ -128,7 +128,6 @@ export function DiaryComposer({ onSend }: DiaryComposerProps) {
           <input
             accept="image/*"
             aria-label="Add diary images"
-            capture="environment"
             multiple
             onChange={(event) => {
               if (event.target.files !== null) {

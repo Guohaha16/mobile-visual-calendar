@@ -64,4 +64,40 @@ describe("diary media", () => {
     expect(drawImage).toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps the original image when mobile decoding is unavailable", async () => {
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn().mockRejectedValue(new Error("decoder unavailable")),
+    );
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => {
+      throw new Error("object URLs unavailable");
+    });
+    const file = new File(["image"], "camera.heic", { type: "image/heic" });
+
+    await expect(createThumbnail(file)).resolves.toMatchObject({
+      thumbnailBlob: file,
+    });
+  });
+
+  it("falls back to JPEG when WebP encoding is unavailable", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback, type) => {
+        callback(
+          type === "image/webp"
+            ? null
+            : new Blob(["thumbnail"], { type: "image/jpeg" }),
+        );
+      },
+    );
+    const file = new File(["image"], "mobile.jpg", { type: "image/jpeg" });
+
+    const result = await createThumbnail(file);
+
+    expect(result.thumbnailBlob.type).toBe("image/jpeg");
+    expect(HTMLCanvasElement.prototype.toBlob).toHaveBeenCalledTimes(2);
+  });
 });

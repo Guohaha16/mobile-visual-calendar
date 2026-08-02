@@ -47,7 +47,8 @@ describe("DiarySheet", () => {
 
     expect(
       screen.getByRole("dialog", { name: "Diary for 2026-07-29" }),
-    ).toBeInTheDocument();
+    ).toHaveFocus();
+    expect(screen.getByLabelText("Diary date")).not.toHaveFocus();
     expect(await screen.findByText("River walk")).toBeInTheDocument();
 
     const dateInput = screen.getByLabelText("Diary date");
