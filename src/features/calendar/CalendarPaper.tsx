@@ -1,5 +1,6 @@
 import { buildMonthGrid } from "../../domain/date";
 import type { DiaryEntry } from "../../domain/types";
+import { getEditorialBookTreatment } from "../shelf/editorialPalette";
 import { DayCell } from "./DayCell";
 import styles from "./CalendarPaper.module.css";
 
@@ -45,6 +46,7 @@ export function CalendarPaper({
     ? monthGrid.slice(0, 35)
     : monthGrid;
   const weekCount = cells.length / 7;
+  const bookAsset = getEditorialBookTreatment(month).calendarBookAsset;
 
   return (
     <section
@@ -57,7 +59,7 @@ export function CalendarPaper({
         className={styles.book}
         data-testid="calendar-book"
         draggable={false}
-        src="/assets/calendar-book.png"
+        src={bookAsset}
       />
       <img
         alt="Calendar paper"

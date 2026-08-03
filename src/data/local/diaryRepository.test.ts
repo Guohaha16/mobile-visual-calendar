@@ -195,13 +195,13 @@ describe("diary repository", () => {
       text: "First user",
       media: [],
     });
-    await repository.setBackgroundPreference({ mode: "random" });
+    await repository.setBackgroundPreference("home", { mode: "random" });
     await repository.setSyncCursor("cursor-user-1");
 
     expect(database.name).not.toBe(secondDatabase.name);
     expect(await secondRepository.listEntriesForDate("2026-07-29")).toEqual([]);
     expect(await secondRepository.listOutbox()).toEqual([]);
-    expect(await secondRepository.getBackgroundPreference()).toBeUndefined();
+    expect(await secondRepository.getBackgroundPreference("home")).toBeUndefined();
     expect(await secondRepository.getSyncCursor()).toBeUndefined();
 
     await secondRepository.createEntry({
@@ -209,7 +209,7 @@ describe("diary repository", () => {
       text: "Second user",
       media: [],
     });
-    await secondRepository.setBackgroundPreference({
+    await secondRepository.setBackgroundPreference("home", {
       mode: "pinned",
       pinnedAssetId: "second-user-asset",
     });
@@ -221,8 +221,8 @@ describe("diary repository", () => {
     expect((await secondRepository.listEntriesForDate("2026-07-29"))[0]?.text).toBe(
       "Second user",
     );
-    expect(await repository.getBackgroundPreference()).toEqual({ mode: "random" });
-    expect(await secondRepository.getBackgroundPreference()).toEqual({
+    expect(await repository.getBackgroundPreference("home")).toEqual({ mode: "random" });
+    expect(await secondRepository.getBackgroundPreference("home")).toEqual({
       mode: "pinned",
       pinnedAssetId: "second-user-asset",
     });
@@ -230,6 +230,44 @@ describe("diary repository", () => {
     expect(await secondRepository.getSyncCursor()).toBe("cursor-user-2");
     expect(await repository.listOutbox()).toHaveLength(2);
     expect(await secondRepository.listOutbox()).toHaveLength(2);
+  });
+
+  it("keeps home and calendar background preferences independent", async () => {
+    await repository.setBackgroundPreference("home", { mode: "random" });
+    await repository.setBackgroundPreference("calendar", {
+      mode: "pinned",
+      pinnedAssetId: "calendar-asset",
+    });
+
+    expect(await repository.getBackgroundPreference("home")).toEqual({
+      mode: "random",
+    });
+    expect(await repository.getBackgroundPreference("calendar")).toEqual({
+      mode: "pinned",
+      pinnedAssetId: "calendar-asset",
+    });
+  });
+
+  it("keeps each year-month calendar background independent", async () => {
+    await repository.setBackgroundPreference("calendar", { mode: "solid" });
+    await repository.setBackgroundPreference("calendar:2026-08", {
+      mode: "pinned",
+      pinnedAssetId: "august-asset",
+    });
+    await repository.setBackgroundPreference("calendar:2026-09", {
+      mode: "random",
+    });
+
+    expect(await repository.getBackgroundPreference("calendar:2026-08")).toEqual({
+      mode: "pinned",
+      pinnedAssetId: "august-asset",
+    });
+    expect(await repository.getBackgroundPreference("calendar:2026-09")).toEqual({
+      mode: "random",
+    });
+    expect(await repository.getBackgroundPreference("calendar:2026-10")).toEqual({
+      mode: "solid",
+    });
   });
 
   it("refuses a repository user that does not own the database", () => {
@@ -426,11 +464,12 @@ describe("diary repository", () => {
     ).toBe("thumbnail");
 
     await repository.setBackgroundPreference(
+      "calendar",
       preference,
       "2026-07-29T11:00:00.000Z",
     );
 
-    expect(await repository.getBackgroundPreference()).toEqual(preference);
+    expect(await repository.getBackgroundPreference("calendar")).toEqual(preference);
     expect((await repository.listOutbox()).at(-1)).toMatchObject({
       kind: "upsert-preference",
       entityId: "background",
@@ -442,11 +481,12 @@ describe("diary repository", () => {
     );
     await expect(
       repository.setBackgroundPreference(
+        "calendar",
         { mode: "random" },
         "2026-07-29T12:00:00.000Z",
       ),
     ).rejects.toThrow("preference enqueue failed");
-    expect(await repository.getBackgroundPreference()).toEqual(preference);
+    expect(await repository.getBackgroundPreference("calendar")).toEqual(preference);
   });
 
   it("atomically persists cloud paths, clears originals, and retains thumbnails", async () => {
@@ -755,6 +795,7 @@ describe("diary repository", () => {
 
   it("returns the stored preference snapshot and coalesces non-syncing work", async () => {
     await repository.setBackgroundPreference(
+      "home",
       { mode: "random" },
       "2026-07-29T11:00:00.000Z",
     );
@@ -769,20 +810,26 @@ describe("diary repository", () => {
     );
 
     await repository.setBackgroundPreference(
+      "calendar",
       { mode: "pinned", pinnedAssetId: "asset-1" },
       "2026-07-29T12:00:00.000Z",
     );
     await repository.setBackgroundPreference(
+      "calendar",
       { mode: "random" },
       "2026-07-29T13:00:00.000Z",
     );
 
     expect(await repository.getStoredBackgroundPreference()).toEqual({
       key: "background",
-      value: { mode: "random" },
+      value: {
+        home: { mode: "random" },
+        calendar: { mode: "random" },
+        calendarMonths: {},
+      },
       updatedAt: "2026-07-29T13:00:00.000Z",
     });
-    expect(await repository.getBackgroundPreference()).toEqual({
+    expect(await repository.getBackgroundPreference("calendar")).toEqual({
       mode: "random",
     });
     expect(await repository.listOutbox()).toMatchObject([
@@ -797,6 +844,7 @@ describe("diary repository", () => {
 
   it("retains a syncing preference operation while enqueueing the latest snapshot", async () => {
     await repository.setBackgroundPreference(
+      "home",
       { mode: "random" },
       "2026-07-29T11:00:00.000Z",
     );
@@ -811,13 +859,18 @@ describe("diary repository", () => {
     );
 
     await repository.setBackgroundPreference(
+      "calendar",
       { mode: "pinned", pinnedAssetId: "asset-latest" },
       "2026-07-29T12:00:00.000Z",
     );
 
     expect(await repository.getStoredBackgroundPreference()).toEqual({
       key: "background",
-      value: { mode: "pinned", pinnedAssetId: "asset-latest" },
+      value: {
+        home: { mode: "random" },
+        calendar: { mode: "pinned", pinnedAssetId: "asset-latest" },
+        calendarMonths: {},
+      },
       updatedAt: "2026-07-29T12:00:00.000Z",
     });
     expect(await repository.listOutbox()).toMatchObject([
@@ -886,6 +939,7 @@ describe("diary repository", () => {
       media: [],
     });
     await repository.setBackgroundPreference(
+      "home",
       { mode: "random" },
       "2026-07-29T11:00:00.000Z",
     );

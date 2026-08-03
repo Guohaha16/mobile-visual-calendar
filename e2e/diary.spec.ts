@@ -109,7 +109,8 @@ test("keeps image-first records through offline reload and deletes immediately",
   await context.setOffline(true);
   await page.getByRole("button", { name: "Send diary entry" }).click();
   await expect(page.getByText(LONG_TEXT)).toBeVisible();
-  await expect(page.getByText("Waiting to sync")).toBeVisible();
+  await expect(page.getByLabel("Diary text")).toHaveValue("");
+  await expect(page.getByText("Waiting to sync")).toHaveCount(0);
 
   await page.reload();
   await expect(page.getByRole("main", { name: "Visual diary" })).toBeVisible();
@@ -118,7 +119,7 @@ test("keeps image-first records through offline reload and deletes immediately",
   await expect(page.getByRole("feed", { name: "Diary history" }).getByRole("img")).toHaveCount(3);
 
   await context.setOffline(false);
-  await expect(page.getByText("Waiting to sync")).toBeVisible();
+  await expect(page.getByText("Waiting to sync")).toHaveCount(0);
   await page.getByRole("button", { name: /Delete entry at/ }).click();
   await expect(page.getByText(LONG_TEXT)).toHaveCount(0);
   await expect(page.getByRole("alertdialog")).toHaveCount(0);

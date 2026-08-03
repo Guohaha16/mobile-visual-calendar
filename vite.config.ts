@@ -9,8 +9,8 @@ export default defineConfig({
       includeAssets: [
         "assets/calendar-paper-template.png",
         "assets/calendar-book.png",
-        "fonts/MaShanZheng-Regular.ttf",
-        "fonts/OFL.txt",
+        "assets/month-books/*.webp",
+        "fonts/JinNianYeYaoJiaYouYa.ttf",
         "icons/*.png",
       ],
       manifest: {

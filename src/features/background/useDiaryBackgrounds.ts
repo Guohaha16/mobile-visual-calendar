@@ -1,7 +1,10 @@
 import { useEffect, useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 
-import type { BackgroundPreference } from "../../domain/types";
+import type {
+  BackgroundPreference,
+  BackgroundSurface,
+} from "../../domain/types";
 import type { DiaryRepository } from "../../data/local/diaryRepository";
 import type { DiaryBackgroundAsset } from "./types";
 import {
@@ -9,10 +12,11 @@ import {
   type ImageLuminance,
 } from "./luminance";
 
-const randomPreference: BackgroundPreference = { mode: "random" };
+const defaultPreference: BackgroundPreference = { mode: "solid" };
 
 export function useDiaryBackgrounds(
   repository: DiaryRepository,
+  surface: BackgroundSurface,
   classifyLuminance: (blob: Blob) => Promise<ImageLuminance> =
     classifyImageLuminance,
 ) {
@@ -50,10 +54,10 @@ export function useDiaryBackgrounds(
   );
   const preference =
     useLiveQuery(
-      () => repository.getBackgroundPreference(),
-      [repository],
-      randomPreference,
-    ) ?? randomPreference;
+      () => repository.getBackgroundPreference(surface),
+      [repository, surface],
+      defaultPreference,
+    ) ?? defaultPreference;
 
   const { assets, objectUrls } = useMemo(() => {
     const urls: string[] = [];
@@ -93,7 +97,7 @@ export function useDiaryBackgrounds(
     assets,
     preference,
     setPreference: async (value: BackgroundPreference) => {
-      await repository.setBackgroundPreference(value);
+      await repository.setBackgroundPreference(surface, value);
     },
   };
 }

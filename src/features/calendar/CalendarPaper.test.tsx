@@ -21,7 +21,7 @@ describe("CalendarPaper", () => {
     );
     expect(screen.getByTestId("calendar-book")).toHaveAttribute(
       "src",
-      "/assets/calendar-book.png",
+      "/assets/month-books/2.webp",
     );
     expect(container.querySelectorAll("[data-calendar-cell]")).toHaveLength(35);
     expect(container.querySelector("[data-week-count]"))
@@ -45,6 +45,10 @@ describe("CalendarPaper", () => {
     expect(container.querySelectorAll("[data-calendar-cell]")).toHaveLength(42);
     expect(container.querySelector("[data-week-count]"))
       .toHaveAttribute("data-week-count", "6");
+    expect(screen.getByTestId("calendar-book")).toHaveAttribute(
+      "src",
+      "/assets/month-books/1.webp",
+    );
   });
 
   it("labels the month and all seven weekday columns", () => {

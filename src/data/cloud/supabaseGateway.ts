@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type {
+  BackgroundPreference,
   DiaryEntry,
   MediaAsset,
   StoredPreference,
@@ -59,8 +60,8 @@ export interface SupabaseApplyDeleteResult {
 
 export interface SupabaseApplyPreferenceRequest {
   operationId: string;
-  mode: StoredPreference["value"]["mode"];
-  pinnedAssetId?: string;
+  home: BackgroundPreference;
+  calendar: BackgroundPreference;
   updatedAt: string;
 }
 
@@ -94,6 +95,8 @@ export interface SupabaseMediaSnapshotRow extends SupabaseMediaPayload {
 
 export interface SupabasePreferenceSnapshotRow {
   user_id: string;
+  home_background_mode?: string;
+  home_pinned_background_asset_id?: string | null;
   background_mode: string;
   pinned_background_asset_id: string | null;
   updated_at: string;
@@ -321,8 +324,16 @@ export const createSupabaseGatewayAdapter = (
   async applyPreference(request) {
     const data = await rpc(client, "visual_diary_apply_preference", {
       p_operation_id: request.operationId,
-      p_background_mode: request.mode,
-      p_pinned_background_asset_id: request.pinnedAssetId ?? null,
+      p_home_background_mode: request.home.mode,
+      p_home_pinned_background_asset_id:
+        request.home.mode === "pinned"
+          ? request.home.pinnedAssetId
+          : null,
+      p_background_mode: request.calendar.mode,
+      p_pinned_background_asset_id:
+        request.calendar.mode === "pinned"
+          ? request.calendar.pinnedAssetId
+          : null,
       p_updated_at: request.updatedAt,
     });
     return parseOperationResult(data, "Preference");
@@ -670,30 +681,42 @@ const ownStoragePath = (userId: string, path: string): boolean => {
 const optionalNumber = (value: number | null): number | undefined =>
   value === null ? undefined : value;
 
+const mapPreferenceValue = (
+  mode: string,
+  pinnedAssetId: string | null,
+): BackgroundPreference => {
+  if (mode === "solid") {
+    return { mode: "solid" };
+  }
+  if (mode === "random") {
+    return { mode: "random" };
+  }
+  if (mode === "pinned" && pinnedAssetId !== null) {
+    return { mode: "pinned", pinnedAssetId };
+  }
+  throw new Error(`Invalid background preference mode: ${mode}`);
+};
+
 const mapPreference = (
   row: SupabasePreferenceSnapshotRow,
 ): StoredPreference => {
-  if (row.background_mode === "random") {
-    return {
-      key: "background",
-      value: { mode: "random" },
-      updatedAt: row.updated_at,
-    };
-  }
-  if (
-    row.background_mode === "pinned" &&
-    row.pinned_background_asset_id !== null
-  ) {
-    return {
-      key: "background",
-      value: {
-        mode: "pinned",
-        pinnedAssetId: row.pinned_background_asset_id,
-      },
-      updatedAt: row.updated_at,
-    };
-  }
-  throw new Error(`Invalid background preference mode: ${row.background_mode}`);
+  const homeMode = row.home_background_mode ?? row.background_mode;
+  const homePinnedAssetId =
+    row.home_pinned_background_asset_id === undefined
+      ? row.pinned_background_asset_id
+      : row.home_pinned_background_asset_id;
+
+  return {
+    key: "background",
+    value: {
+      home: mapPreferenceValue(homeMode, homePinnedAssetId),
+      calendar: mapPreferenceValue(
+        row.background_mode,
+        row.pinned_background_asset_id,
+      ),
+    },
+    updatedAt: row.updated_at,
+  };
 };
 
 const errorStringProperty = (
@@ -982,8 +1005,13 @@ export class SupabaseGateway implements CloudGateway {
     operationId: string,
   ): Promise<void> {
     requireTimestamp(preference.updatedAt, "preference");
-    if (preference.value.mode === "pinned") {
-      requireUuid(preference.value.pinnedAssetId, "pinned media");
+    for (const value of [
+      preference.value.home,
+      preference.value.calendar,
+    ]) {
+      if (value.mode === "pinned") {
+        requireUuid(value.pinnedAssetId, "pinned media");
+      }
     }
     await this.ensureSession();
 
@@ -1002,10 +1030,8 @@ export class SupabaseGateway implements CloudGateway {
 
     await adapter.applyPreference({
       operationId,
-      mode: preference.value.mode,
-      ...(preference.value.mode === "pinned"
-        ? { pinnedAssetId: preference.value.pinnedAssetId }
-        : {}),
+      home: preference.value.home,
+      calendar: preference.value.calendar,
       updatedAt: preference.updatedAt,
     });
   }

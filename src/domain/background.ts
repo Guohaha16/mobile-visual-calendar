@@ -1,6 +1,15 @@
-import type { BackgroundPreference, MediaAsset } from "./types";
+import type {
+  CalendarBackgroundSurface,
+  BackgroundPreference,
+  BackgroundPreferences,
+  MediaAsset,
+} from "./types";
 
 export type ResolvedBackground =
+  | {
+      mode: "solid";
+      asset: undefined;
+    }
   | {
       mode: "pinned";
       asset: MediaAsset;
@@ -9,6 +18,43 @@ export type ResolvedBackground =
       mode: "random";
       asset: MediaAsset | undefined;
     };
+
+export const defaultBackgroundPreferences = (): BackgroundPreferences => ({
+  home: { mode: "solid" },
+  calendar: { mode: "solid" },
+  calendarMonths: {},
+});
+
+export const calendarBackgroundSurface = (
+  year: number,
+  month: number,
+): CalendarBackgroundSurface => {
+  if (!Number.isInteger(year) || year < 1 || year > 9999) {
+    throw new RangeError("Calendar background year must be an integer from 1 to 9999");
+  }
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    throw new RangeError("Calendar background month must be an integer from 1 to 12");
+  }
+
+  return `calendar:${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}`;
+};
+
+export const normalizeBackgroundPreferences = (
+  value: BackgroundPreferences | BackgroundPreference,
+): BackgroundPreferences => {
+  if ("home" in value && "calendar" in value) {
+    return {
+      ...value,
+      calendarMonths: value.calendarMonths ?? {},
+    };
+  }
+
+  return {
+    home: value,
+    calendar: value,
+    calendarMonths: {},
+  };
+};
 
 const selectRandomAsset = (
   assets: readonly MediaAsset[],
@@ -31,6 +77,10 @@ export const resolveBackground = (
   assets: readonly MediaAsset[],
   randomFn: () => number,
 ): ResolvedBackground => {
+  if (preference.mode === "solid") {
+    return { mode: "solid", asset: undefined };
+  }
+
   if (preference.mode === "pinned") {
     const pinnedAsset = assets.find(
       (asset) => asset.id === preference.pinnedAssetId,

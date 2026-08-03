@@ -73,9 +73,9 @@ class FakeCloudGateway implements CloudGateway {
   ): Promise<void> {
     this.pushedPreferences.push(preference);
     this.calls.push(
-      `preference:${preference.value.mode}:${preference.updatedAt}:${operationId}`,
+      `preference:${preference.value.calendar.mode}:${preference.updatedAt}:${operationId}`,
     );
-    this.applyRemote(operationId, `preference:${preference.value.mode}`);
+    this.applyRemote(operationId, `preference:${preference.value.calendar.mode}`);
   }
 
   async pullSince(cursor?: string): Promise<CloudPullResult> {
@@ -302,10 +302,12 @@ describe("OutboxProcessor", () => {
   it("pushes the full latest preference before later records", async () => {
     const repository = createRepository();
     await repository.setBackgroundPreference(
+      "home",
       { mode: "random" },
       "2026-07-30T08:30:00.000Z",
     );
     await repository.setBackgroundPreference(
+      "calendar",
       { mode: "pinned", pinnedAssetId: "asset-1" },
       "2026-07-30T08:31:00.000Z",
     );
@@ -336,7 +338,11 @@ describe("OutboxProcessor", () => {
     expect(gateway.pushedPreferences).toEqual([
       {
         key: "background",
-        value: { mode: "pinned", pinnedAssetId: "asset-1" },
+        value: {
+          home: { mode: "random" },
+          calendar: { mode: "pinned", pinnedAssetId: "asset-1" },
+          calendarMonths: {},
+        },
         updatedAt: "2026-07-30T08:31:00.000Z",
       },
     ]);

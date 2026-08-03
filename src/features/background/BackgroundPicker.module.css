@@ -70,6 +70,38 @@
   cursor: pointer;
 }
 
+.asset[aria-pressed="true"],
+.random[aria-pressed="true"] {
+  border-color: var(--color-anchor);
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 82%);
+}
+
+.solid {
+  display: grid;
+  padding: 10px;
+  align-content: end;
+  background: #F2F2EF;
+}
+
+.solidSwatch {
+  position: absolute;
+  inset: 0;
+  background: #F2F2EF;
+}
+
+.solidLabel {
+  position: relative;
+  z-index: 1;
+  padding: 5px;
+  color: var(--color-anchor);
+  background: rgb(255 255 255 / 72%);
+  border-radius: var(--radius-small);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.7rem;
+  line-height: 1;
+  text-align: center;
+}
+
 .asset img {
   width: 100%;
   height: 100%;

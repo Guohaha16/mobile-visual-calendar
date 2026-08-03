@@ -1,10 +1,16 @@
 import type {
   BackgroundPreference,
+  BackgroundPreferences,
+  BackgroundSurface,
   DiaryEntry,
   MediaAsset,
   OutboxOperation,
   StoredPreference,
 } from "../../domain/types";
+import {
+  defaultBackgroundPreferences,
+  normalizeBackgroundPreferences,
+} from "../../domain/background";
 import type { VisualDiaryDb } from "./db";
 
 export type CreateMediaInput = Omit<
@@ -318,35 +324,75 @@ export class DiaryRepository {
     );
   }
 
-  async getBackgroundPreference(): Promise<
+  async getBackgroundPreference(surface: BackgroundSurface): Promise<
     BackgroundPreference | undefined
   > {
-    return (await this.getStoredBackgroundPreference())?.value;
+    const preferences = (await this.getStoredBackgroundPreference())?.value;
+    if (preferences === undefined) {
+      return undefined;
+    }
+    if (surface === "home" || surface === "calendar") {
+      return preferences[surface];
+    }
+
+    const monthKey = surface.slice("calendar:".length);
+    return preferences.calendarMonths?.[monthKey] ?? preferences.calendar;
   }
 
   async getStoredBackgroundPreference(): Promise<
     StoredPreference | undefined
   > {
-    return this.database.preferences.get("background");
+    const stored = await this.database.preferences.get("background");
+    if (stored === undefined) {
+      return undefined;
+    }
+
+    return {
+      ...stored,
+      value: normalizeBackgroundPreferences(
+        stored.value as BackgroundPreferences | BackgroundPreference,
+      ),
+    };
   }
 
   async setBackgroundPreference(
+    surface: BackgroundSurface,
     value: BackgroundPreference,
     updatedAt?: string,
   ): Promise<StoredPreference> {
     const preferenceTimestamp = updatedAt ?? this.dependencies.clock();
-    const preference: StoredPreference = {
-      key: "background",
-      value,
-      updatedAt: preferenceTimestamp,
-    };
     const operationId = this.dependencies.generateId();
+    let preference: StoredPreference | undefined;
 
     await this.database.transaction(
       "rw",
       this.database.preferences,
       this.database.outbox,
       async () => {
+        const current = await this.database.preferences.get("background");
+        const currentValue =
+          current === undefined
+            ? defaultBackgroundPreferences()
+            : normalizeBackgroundPreferences(
+                current.value as BackgroundPreferences | BackgroundPreference,
+              );
+        const nextValue = surface.startsWith("calendar:")
+          ? {
+              ...currentValue,
+              calendarMonths: {
+                ...currentValue.calendarMonths,
+                [surface.slice("calendar:".length)]: value,
+              },
+            }
+          : {
+              ...currentValue,
+              [surface]: value,
+            };
+        preference = {
+          key: "background",
+          value: nextValue,
+          updatedAt: preferenceTimestamp,
+        };
         await this.database.preferences.put(preference);
         const operationCreatedAt =
           await this.allocateOutboxCreatedAt(preferenceTimestamp);
@@ -372,6 +418,9 @@ export class DiaryRepository {
     );
 
     this.notifyMutation();
+    if (preference === undefined) {
+      throw new Error("Background preference transaction did not complete");
+    }
     return preference;
   }
 

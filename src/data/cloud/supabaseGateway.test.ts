@@ -759,7 +759,10 @@ describe("SupabaseGateway pushes", () => {
     const context = createContext();
     const preference: StoredPreference = {
       key: "background",
-      value: { mode: "pinned", pinnedAssetId: MEDIA_ID },
+      value: {
+        home: { mode: "solid" },
+        calendar: { mode: "pinned", pinnedAssetId: MEDIA_ID },
+      },
       updatedAt: "2026-07-30T10:11:12.000Z",
     };
 
@@ -771,8 +774,8 @@ describe("SupabaseGateway pushes", () => {
     expect(context.adapter.applyPreferences).toEqual([
       {
         operationId: PREFERENCE_OPERATION_ID,
-        mode: "pinned",
-        pinnedAssetId: MEDIA_ID,
+        home: { mode: "solid" },
+        calendar: { mode: "pinned", pinnedAssetId: MEDIA_ID },
         updatedAt: "2026-07-30T10:11:12.000Z",
       },
     ]);
@@ -794,7 +797,10 @@ describe("SupabaseGateway pushes", () => {
       preferenceContext.gateway.pushPreference(
         {
           key: "background",
-          value: { mode: "pinned", pinnedAssetId: "not-a-uuid" },
+          value: {
+            home: { mode: "pinned", pinnedAssetId: "not-a-uuid" },
+            calendar: { mode: "solid" },
+          },
           updatedAt: "2026-07-30T10:11:12.000Z",
         },
         PREFERENCE_OPERATION_ID,
@@ -846,6 +852,8 @@ describe("SupabaseGateway snapshot pulls", () => {
       ],
       preference: {
         user_id: USER_ID,
+        home_background_mode: "random",
+        home_pinned_background_asset_id: null,
         background_mode: "pinned",
         pinned_background_asset_id: REMOTE_MEDIA_ID,
         updated_at: "2026-07-30T10:04:00.000Z",
@@ -877,7 +885,10 @@ describe("SupabaseGateway snapshot pulls", () => {
     expect(result.cursor).toBe("2026-08-01T00:00:00.000Z");
     expect(result.preferences).toEqual({
       key: "background",
-      value: { mode: "pinned", pinnedAssetId: REMOTE_MEDIA_ID },
+      value: {
+        home: { mode: "random" },
+        calendar: { mode: "pinned", pinnedAssetId: REMOTE_MEDIA_ID },
+      },
       updatedAt: "2026-07-30T10:04:00.000Z",
     });
     expect(result.entries).toMatchObject([
@@ -1044,7 +1055,10 @@ describe("SupabaseGateway snapshot pulls", () => {
         },
       ],
       preferences: {
-        value: { mode: "random" },
+        value: {
+          home: { mode: "random" },
+          calendar: { mode: "random" },
+        },
       },
       cursor: "server-high-water",
     });
@@ -1145,7 +1159,10 @@ describe("Supabase migration conflict contract", () => {
       /p_deleted_at >= greatest\(\s*updated_at,\s*coalesce\(deleted_at, '-infinity'::timestamptz\)\s*\)/,
     );
     expect(migration).toMatch(
-      /set background_mode = 'random',\s+pinned_background_asset_id = null/,
+      /set background_mode = 'solid',\s+pinned_background_asset_id = null/,
+    );
+    expect(migration).toMatch(
+      /set home_background_mode = 'solid',\s+home_pinned_background_asset_id = null/,
     );
     expect(migration).toMatch(
       /update public\.sync_operations\s+set completed_at = clock_timestamp\(\)/,
@@ -1153,6 +1170,8 @@ describe("Supabase migration conflict contract", () => {
   });
 
   it("uses deterministic preference ties and validates exact owned paths", () => {
+    expect(migration).toContain("home_background_mode text not null");
+    expect(migration).toContain("p_home_background_mode text");
     expect(migration).toContain(
       "v_incoming_preference_key > v_existing_preference_key",
     );

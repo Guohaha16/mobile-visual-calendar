@@ -26,6 +26,10 @@ export interface MediaAsset {
 
 export type BackgroundPreference =
   | {
+      mode: "solid";
+      pinnedAssetId?: never;
+    }
+  | {
       mode: "random";
       pinnedAssetId?: never;
     }
@@ -33,6 +37,18 @@ export type BackgroundPreference =
       mode: "pinned";
       pinnedAssetId: string;
     };
+
+export type CalendarBackgroundSurface = `calendar:${string}`;
+export type BackgroundSurface =
+  | "home"
+  | "calendar"
+  | CalendarBackgroundSurface;
+
+export interface BackgroundPreferences {
+  home: BackgroundPreference;
+  calendar: BackgroundPreference;
+  calendarMonths?: Record<string, BackgroundPreference>;
+}
 
 export interface OutboxOperation {
   id: string;
@@ -47,7 +63,7 @@ export interface OutboxOperation {
 
 export interface StoredPreference {
   key: "background";
-  value: BackgroundPreference;
+  value: BackgroundPreferences;
   updatedAt: string;
 }
 

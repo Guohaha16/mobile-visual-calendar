@@ -58,7 +58,7 @@ export function BackgroundScene({
             }}
             src={visibleAsset.url}
           />
-          <div className={styles.scrim} />
+          {surface === "editorial" ? <div className={styles.scrim} /> : null}
         </>
       )}
     </div>

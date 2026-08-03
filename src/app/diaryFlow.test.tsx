@@ -58,7 +58,7 @@ describe("diary flow", () => {
     await Promise.all(databases.splice(0).map((database) => database.delete()));
   });
 
-  it("persists an entry, reports queued work, and deletes immediately", async () => {
+  it("persists an entry without showing cloud status in local demo mode", async () => {
     const repository = createRepository();
     const user = userEvent.setup();
     render(<AppShell repository={repository} />);
@@ -67,7 +67,7 @@ describe("diary flow", () => {
     await user.click(screen.getByRole("button", { name: "Send diary entry" }));
 
     expect(await screen.findByText("Today")).toBeInTheDocument();
-    expect(await screen.findByText("Waiting to sync")).toBeInTheDocument();
+    expect(screen.queryByText("Waiting to sync")).not.toBeInTheDocument();
     await expect(repository.listEntriesForDate("2026-07-29")).resolves.toEqual([
       expect.objectContaining({
         entryDate: "2026-07-29",
@@ -77,7 +77,7 @@ describe("diary flow", () => {
     ]);
 
     await user.click(
-      screen.getByRole("button", { name: /Delete entry at/ }),
+      await screen.findByRole("button", { name: /Delete entry at/ }),
     );
 
     await waitFor(() => {

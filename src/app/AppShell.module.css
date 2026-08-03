@@ -23,8 +23,12 @@
 }
 
 @media (max-width: 599px) {
-  .backgroundButton {
+  .backgroundButton[data-view="shelf"] {
     top: calc(112px + env(safe-area-inset-top));
+  }
+
+  .backgroundButton[data-view="calendar"] {
+    top: calc(62px + env(safe-area-inset-top));
   }
 }
 

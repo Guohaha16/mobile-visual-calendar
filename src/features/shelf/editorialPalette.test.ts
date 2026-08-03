@@ -15,8 +15,16 @@ describe("editorial book palette", () => {
 
   it("uses anchor navy with light ink for July", () => {
     expect(getEditorialBookTreatment(7)).toEqual({
+      calendarBookAsset: "/assets/month-books/2.webp",
       ink: "#F7F6F2",
       paper: "#1F3048",
+    });
+  });
+
+  it("pairs August's red shelf treatment with the red photographic book", () => {
+    expect(getEditorialBookTreatment(8)).toMatchObject({
+      calendarBookAsset: "/assets/month-books/1.webp",
+      paper: "#E34B4A",
     });
   });
 

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { MediaAsset } from "./types";
-import { resolveBackground } from "./background";
+import {
+  calendarBackgroundSurface,
+  normalizeBackgroundPreferences,
+  resolveBackground,
+} from "./background";
 
 const assets: MediaAsset[] = [
   {
@@ -22,6 +26,13 @@ const assets: MediaAsset[] = [
 ];
 
 describe("resolveBackground", () => {
+  it("keeps the solid background even when diary images are available", () => {
+    expect(resolveBackground({ mode: "solid" }, assets, () => 0)).toEqual({
+      mode: "solid",
+      asset: undefined,
+    });
+  });
+
   it("returns an existing pinned asset in pinned mode", () => {
     expect(
       resolveBackground(
@@ -70,5 +81,40 @@ describe("resolveBackground", () => {
       mode: "random",
       asset: assets[0],
     });
+  });
+});
+
+describe("normalizeBackgroundPreferences", () => {
+  it("copies a legacy single preference to both independent surfaces", () => {
+    const legacy = { mode: "random" } as const;
+
+    expect(normalizeBackgroundPreferences(legacy)).toEqual({
+      home: legacy,
+      calendar: legacy,
+      calendarMonths: {},
+    });
+  });
+
+  it("preserves distinct home and calendar preferences", () => {
+    const preferences = {
+      home: { mode: "random" },
+      calendar: { mode: "solid" },
+    } as const;
+
+    expect(normalizeBackgroundPreferences(preferences)).toEqual({
+      ...preferences,
+      calendarMonths: {},
+    });
+  });
+});
+
+describe("calendarBackgroundSurface", () => {
+  it("creates a stable year-month preference key", () => {
+    expect(calendarBackgroundSurface(2026, 8)).toBe("calendar:2026-08");
+  });
+
+  it("rejects invalid calendar coordinates", () => {
+    expect(() => calendarBackgroundSurface(2026, 0)).toThrow(RangeError);
+    expect(() => calendarBackgroundSurface(10_000, 1)).toThrow(RangeError);
   });
 });

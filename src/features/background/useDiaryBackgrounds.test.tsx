@@ -13,9 +13,15 @@ import { useDiaryBackgrounds } from "./useDiaryBackgrounds";
 
 const TEST_USER_ID = "00000000-0000-4000-8000-000000000029";
 
-function BackgroundHarness({ repository }: { repository: DiaryRepository }) {
+function BackgroundHarness({
+  repository,
+  surface = "calendar:2026-07",
+}: {
+  repository: DiaryRepository;
+  surface?: `calendar:${string}`;
+}) {
   const { assets, preference, setPreference } =
-    useDiaryBackgrounds(repository, async () => "dark");
+    useDiaryBackgrounds(repository, surface, async () => "dark");
 
   return (
     <>
@@ -89,19 +95,35 @@ describe("useDiaryBackgrounds", () => {
     render(<BackgroundHarness repository={repository} />);
 
     expect(
-      await screen.findByText("random:2026-07-29:dark"),
+      await screen.findByText("solid:2026-07-29:dark"),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Pin first" }));
 
     await waitFor(async () => {
-      expect(await repository.getBackgroundPreference()).toMatchObject({
-        mode: "pinned",
-      });
+      expect(
+        await repository.getBackgroundPreference("calendar:2026-07"),
+      ).toMatchObject({ mode: "pinned" });
     });
     expect(await repository.listOutbox()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "upsert-preference" }),
       ]),
     );
+  });
+
+  it("does not carry one month's selected background into another month", async () => {
+    await repository.setBackgroundPreference("calendar:2026-07", {
+      mode: "random",
+    });
+
+    const { rerender } = render(
+      <BackgroundHarness repository={repository} surface="calendar:2026-07" />,
+    );
+    expect(await screen.findByText(/^random:/)).toBeInTheDocument();
+
+    rerender(
+      <BackgroundHarness repository={repository} surface="calendar:2026-08" />,
+    );
+    expect(await screen.findByText(/^solid:/)).toBeInTheDocument();
   });
 });

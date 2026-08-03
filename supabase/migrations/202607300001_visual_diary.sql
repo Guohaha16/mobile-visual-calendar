@@ -49,15 +49,25 @@ create table if not exists public.media_assets (
 
 create table if not exists public.user_preferences (
   user_id uuid primary key references auth.users (id) on delete cascade,
+  home_background_mode text not null,
+  home_pinned_background_asset_id uuid
+    references public.media_assets (id)
+    on delete set null,
   background_mode text not null,
   pinned_background_asset_id uuid
     references public.media_assets (id)
     on delete set null,
   updated_at timestamptz not null,
   last_operation_id text,
-  check (background_mode in ('random', 'pinned')),
+  check (home_background_mode in ('solid', 'random', 'pinned')),
   check (
-    (background_mode = 'random' and pinned_background_asset_id is null)
+    (home_background_mode in ('solid', 'random') and home_pinned_background_asset_id is null)
+    or
+    (home_background_mode = 'pinned' and home_pinned_background_asset_id is not null)
+  ),
+  check (background_mode in ('solid', 'random', 'pinned')),
+  check (
+    (background_mode in ('solid', 'random') and pinned_background_asset_id is null)
     or
     (background_mode = 'pinned' and pinned_background_asset_id is not null)
   )
@@ -207,6 +217,16 @@ create policy "users insert own preferences"
           and media.deleted_at is null
       )
     )
+    and (
+      home_pinned_background_asset_id is null
+      or exists (
+        select 1
+        from public.media_assets as media
+        where media.id = home_pinned_background_asset_id
+          and media.user_id = (select auth.uid())
+          and media.deleted_at is null
+      )
+    )
   );
 
 drop policy if exists "users update own preferences"
@@ -224,6 +244,16 @@ create policy "users update own preferences"
         select 1
         from public.media_assets as media
         where media.id = pinned_background_asset_id
+          and media.user_id = (select auth.uid())
+          and media.deleted_at is null
+      )
+    )
+    and (
+      home_pinned_background_asset_id is null
+      or exists (
+        select 1
+        from public.media_assets as media
+        where media.id = home_pinned_background_asset_id
           and media.user_id = (select auth.uid())
           and media.deleted_at is null
       )
@@ -841,12 +871,25 @@ begin
       );
 
     update public.user_preferences
-    set background_mode = 'random',
+    set background_mode = 'solid',
         pinned_background_asset_id = null,
         updated_at = greatest(updated_at, p_deleted_at),
         last_operation_id = p_operation_id
     where user_id = v_user_id
       and pinned_background_asset_id in (
+        select id
+        from public.media_assets
+        where user_id = v_user_id
+          and entry_id = p_entry_id
+      );
+
+    update public.user_preferences
+    set home_background_mode = 'solid',
+        home_pinned_background_asset_id = null,
+        updated_at = greatest(updated_at, p_deleted_at),
+        last_operation_id = p_operation_id
+    where user_id = v_user_id
+      and home_pinned_background_asset_id in (
         select id
         from public.media_assets
         where user_id = v_user_id
@@ -874,6 +917,8 @@ $$;
 
 create or replace function public.visual_diary_apply_preference(
   p_operation_id text,
+  p_home_background_mode text,
+  p_home_pinned_background_asset_id uuid,
   p_background_mode text,
   p_pinned_background_asset_id uuid,
   p_updated_at timestamptz
@@ -899,23 +944,40 @@ begin
   if p_operation_id is null or length(p_operation_id) not between 1 and 200 then
     raise exception 'Invalid operation ID';
   end if;
-  if p_background_mode not in ('random', 'pinned') or p_updated_at is null then
+  if (
+    p_home_background_mode not in ('solid', 'random', 'pinned')
+    or p_background_mode not in ('solid', 'random', 'pinned')
+    or p_updated_at is null
+  ) then
     raise exception 'Invalid preference payload';
   end if;
   if (
-    (p_background_mode = 'random' and p_pinned_background_asset_id is not null)
+    (p_home_background_mode in ('solid', 'random') and p_home_pinned_background_asset_id is not null)
+    or
+    (p_home_background_mode = 'pinned' and p_home_pinned_background_asset_id is null)
+    or
+    (p_background_mode in ('solid', 'random') and p_pinned_background_asset_id is not null)
     or
     (p_background_mode = 'pinned' and p_pinned_background_asset_id is null)
   ) then
     raise exception 'Pinned preference requires exactly one owned media ID';
   end if;
-  -- Equal timestamps are arrival-order independent: random wins over pinned,
-  -- and equal-time pinned values use lexical UUID order.
-  v_incoming_preference_key := case
-    when p_background_mode = 'pinned'
-      then '0:' || p_pinned_background_asset_id::text
-    else '1:'
-  end;
+  -- Equal timestamps compare the complete home/calendar preference pair.
+  v_incoming_preference_key := (
+    case
+      when p_home_background_mode = 'pinned'
+        then '0:' || p_home_pinned_background_asset_id::text
+      when p_home_background_mode = 'solid' then '1:'
+      else '2:'
+    end
+    || '|'
+    || case
+      when p_background_mode = 'pinned'
+        then '0:' || p_pinned_background_asset_id::text
+      when p_background_mode = 'solid' then '1:'
+      else '2:'
+    end
+  );
 
   perform pg_advisory_xact_lock(
     hashtextextended(v_user_id::text || ':operation:' || p_operation_id, 0)
@@ -957,11 +1019,21 @@ begin
   );
   select
     updated_at,
-    case
-      when background_mode = 'pinned'
-        then '0:' || pinned_background_asset_id::text
-      else '1:'
-    end
+    (
+      case
+        when home_background_mode = 'pinned'
+          then '0:' || home_pinned_background_asset_id::text
+        when home_background_mode = 'solid' then '1:'
+        else '2:'
+      end
+      || '|'
+      || case
+        when background_mode = 'pinned'
+          then '0:' || pinned_background_asset_id::text
+        when background_mode = 'solid' then '1:'
+        else '2:'
+      end
+    )
   into v_existing_updated_at, v_existing_preference_key
   from public.user_preferences
   where user_id = v_user_id;
@@ -975,6 +1047,20 @@ begin
     );
 
   if v_should_apply then
+    if p_home_pinned_background_asset_id is not null and not exists (
+      select 1
+      from public.media_assets as media
+      join public.diary_entries as entry
+        on entry.id = media.entry_id
+       and entry.user_id = media.user_id
+      where media.id = p_home_pinned_background_asset_id
+        and media.user_id = v_user_id
+        and media.deleted_at is null
+        and entry.deleted_at is null
+    ) then
+      raise exception 'Pinned media not found, live, or owned';
+    end if;
+
     if p_pinned_background_asset_id is not null and not exists (
       select 1
       from public.media_assets as media
@@ -991,6 +1077,8 @@ begin
 
     insert into public.user_preferences (
       user_id,
+      home_background_mode,
+      home_pinned_background_asset_id,
       background_mode,
       pinned_background_asset_id,
       updated_at,
@@ -998,13 +1086,17 @@ begin
     )
     values (
       v_user_id,
+      p_home_background_mode,
+      p_home_pinned_background_asset_id,
       p_background_mode,
       p_pinned_background_asset_id,
       p_updated_at,
       p_operation_id
     )
     on conflict (user_id) do update
-    set background_mode = excluded.background_mode,
+    set home_background_mode = excluded.home_background_mode,
+        home_pinned_background_asset_id = excluded.home_pinned_background_asset_id,
+        background_mode = excluded.background_mode,
         pinned_background_asset_id = excluded.pinned_background_asset_id,
         updated_at = excluded.updated_at,
         last_operation_id = excluded.last_operation_id;
@@ -1086,6 +1178,8 @@ begin
 
   select jsonb_build_object(
     'user_id', user_id,
+    'home_background_mode', home_background_mode,
+    'home_pinned_background_asset_id', home_pinned_background_asset_id,
     'background_mode', background_mode,
     'pinned_background_asset_id', pinned_background_asset_id,
     'updated_at', updated_at
@@ -1117,6 +1211,8 @@ revoke all on function public.visual_diary_apply_preference(
   text,
   text,
   uuid,
+  text,
+  uuid,
   timestamptz
 )
   from public, anon;
@@ -1139,6 +1235,8 @@ grant execute on function public.visual_diary_apply_delete(
   to authenticated;
 grant execute on function public.visual_diary_apply_preference(
   text,
+  text,
+  uuid,
   text,
   uuid,
   timestamptz

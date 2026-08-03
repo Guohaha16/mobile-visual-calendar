@@ -45,7 +45,16 @@ describe("BackgroundScene", () => {
     );
   });
 
-  it("renders the resolved diary image with a light scrim", () => {
+  it("uses the solid exhibition background by default", () => {
+    render(
+      <BackgroundScene assets={[asset]} preference={{ mode: "solid" }} />,
+    );
+
+    expect(screen.getByTestId("background-scene")).toHaveClass("fallback");
+    expect(screen.queryByRole("presentation")).not.toBeInTheDocument();
+  });
+
+  it("renders the resolved diary image without a scrim on the calendar", () => {
     render(
       <BackgroundScene
         assets={[asset]}
@@ -61,6 +70,19 @@ describe("BackgroundScene", () => {
       "src",
       asset.url,
     );
+    expect(document.querySelector("[class*='scrim']")).not.toBeInTheDocument();
+  });
+
+  it("keeps the readability scrim on the editorial bookshelf", () => {
+    const { container } = render(
+      <BackgroundScene
+        assets={[asset]}
+        preference={{ mode: "pinned", pinnedAssetId: asset.id }}
+        surface="editorial"
+      />,
+    );
+
+    expect(container.querySelector("[class*='scrim']")).toBeInTheDocument();
   });
 
   it("returns to paper when a diary image fails to load", () => {

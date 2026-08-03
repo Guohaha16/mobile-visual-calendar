@@ -7,6 +7,7 @@ const backgroundPickerCss = readFileSync(
   "src/features/background/BackgroundPicker.module.css",
   "utf8",
 );
+const globalCss = readFileSync("src/styles/global.css", "utf8");
 
 describe("editorial theme contract", () => {
   it("defines the approved home and command colors", () => {
@@ -35,5 +36,14 @@ describe("editorial theme contract", () => {
     );
     expect(backgroundPickerCss).not.toContain("255 252 247");
     expect(backgroundPickerCss).not.toContain("72 57 48");
+  });
+
+  it("uses the supplied handwriting font for calendar excerpts", () => {
+    expect(globalCss).toContain(
+      '--font-calendar-hand: "Jin Nian Ye Yao Jia You Ya"',
+    );
+    expect(globalCss).toContain(
+      'url("/fonts/JinNianYeYaoJiaYouYa.ttf")',
+    );
   });
 });

@@ -1,10 +1,10 @@
 :root {
-  --font-calendar-hand: "Calendar Hand", "KaiTi", "STKaiti", cursive;
+  --font-calendar-hand: "Jin Nian Ye Yao Jia You Ya", "KaiTi", "STKaiti", cursive;
 }
 
 @font-face {
-  font-family: "Calendar Hand";
-  src: url("/fonts/MaShanZheng-Regular.ttf") format("truetype");
+  font-family: "Jin Nian Ye Yao Jia You Ya";
+  src: url("/fonts/JinNianYeYaoJiaYouYa.ttf") format("truetype");
   font-display: swap;
   font-style: normal;
   font-weight: 400;

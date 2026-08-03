@@ -1,39 +1,39 @@
 .nav {
   position: fixed;
   z-index: 30;
-  right: 0;
   bottom: calc(14px + env(safe-area-inset-bottom));
-  left: 0;
+  left: 50%;
   display: flex;
   width: max-content;
   height: 62px;
-  margin-inline: auto;
+  margin: 0;
   padding: 8px;
   align-items: center;
   gap: 7px;
-  background: rgb(255 255 255 / 68%);
-  border: 1px solid rgb(255 255 255 / 82%);
+  background: rgb(255 255 255 / 46%);
+  border: 0;
   border-radius: var(--radius-round);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 86%),
-    0 16px 38px rgb(24 23 22 / 15%);
-  backdrop-filter: blur(24px) saturate(1.2);
-  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: 0 16px 38px rgb(24 23 22 / 15%);
+  backdrop-filter: blur(28px) saturate(1.28);
+  -webkit-backdrop-filter: blur(28px) saturate(1.28);
+  transform: translateX(-50%);
 }
 
 .add {
-  color: #fff;
-  background: var(--color-primary);
-  transform: translateY(-7px);
+  color: var(--color-ink);
+  background: rgb(255 255 255 / 82%);
+  transform: translateY(-11px);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 42%),
-    0 10px 24px rgb(234 99 47 / 28%);
+    inset 0 1px 0 rgb(255 255 255 / 76%),
+    0 10px 24px rgb(24 23 22 / 13%);
 }
 
 .add:hover {
-  transform: translateY(-9px);
+  transform: translateY(-13px);
 }
 
 .add:active {
-  transform: translateY(-7px) scale(0.96);
+  color: #fff;
+  background: color-mix(in srgb, var(--color-primary) 84%, transparent);
+  transform: translateY(-11px) scale(0.96);
 }

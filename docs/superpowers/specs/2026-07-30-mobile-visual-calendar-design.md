@@ -134,7 +134,9 @@ Proposed cloud tables:
 #### `user_preferences`
 
 - `user_id uuid primary key`
-- `background_mode text not null`, restricted to `random` or `pinned`
+- `home_background_mode text not null`, restricted to `solid`, `random`, or `pinned`
+- `home_pinned_background_asset_id uuid`
+- `background_mode text not null`, restricted to `solid`, `random`, or `pinned`
 - `pinned_background_asset_id uuid`
 - `updated_at timestamptz not null`
 
@@ -229,11 +231,12 @@ Each record has a delete action. Delete takes effect immediately without a confi
 
 The eligible background library consists only of images attached to diary records.
 
+- Home and calendar background preferences are managed independently.
 - `random` mode selects one eligible image on each application start.
 - A user may open the background picker and select any eligible diary image.
 - Manual selection switches the preference to `pinned`.
 - The selected image remains fixed until another image is selected or random mode is restored.
-- Deleting the pinned source image returns the app to random mode.
+- Deleting a pinned source image returns only the affected surface to solid mode.
 - If there are no diary images or a selected image fails to load, use the built-in light paper/desktop background.
 
 The picker shows image thumbnails with their diary dates. It does not contain a standalone upload action.
@@ -286,7 +289,7 @@ so the book row carries the color.
 
 - Editorial serif for English month and year display.
 - Readable Chinese sans serif for diary history, navigation, and controls.
-- A self-hosted Chinese handwriting font for calendar excerpts only.
+- The self-hosted `JinNianYeYaoJiaYouYa` Chinese handwriting font for calendar excerpts only.
 - No viewport-width font scaling.
 - Letter spacing remains zero.
 
@@ -331,7 +334,7 @@ Motion uses transform and opacity where possible. The system `prefers-reduced-mo
 - Calendar grid and local-date conversion.
 - Stable year/month shelf seeds.
 - Latest-image cover and day-primary-image selection.
-- Random and pinned background behavior.
+- Independent home/calendar solid, random, and pinned background behavior.
 - Outbox ordering, retries, tombstones, and idempotency.
 - Anonymous session loss behavior.
 
@@ -351,7 +354,7 @@ Motion uses transform and opacity where possible. The system `prefers-reduced-mo
 - Full seven-column calendar framing.
 - Upload, paste, send, refresh, and delete.
 - Offline send followed by online synchronization.
-- Random and pinned background switching.
+- Independent home and calendar background switching.
 - PWA installation metadata and offline shell behavior.
 
 ### Visual Verification
@@ -385,7 +388,7 @@ Visual token values and spring parameters are tuning baselines, not immutable va
 - Diary images are the primary content on the shelf, calendar, and record layer.
 - Both triggers open one shared diary layer with the correct date.
 - Existing records display completely in chronological order.
-- Backgrounds come only from diary images and support random and pinned modes.
+- The exhibition-white solid background is the default; diary images can be selected in random or pinned mode.
 - Records survive refresh, work offline, and synchronize to private cloud storage when online.
 - The PWA is installable and its application shell works offline.
 - The three experience checkpoints are completed before the implementation is treated as finished.

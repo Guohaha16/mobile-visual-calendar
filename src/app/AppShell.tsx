@@ -5,6 +5,7 @@ import { Image } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 
 import { toLocalDateKey } from "../domain/date";
+import { calendarBackgroundSurface } from "../domain/background";
 import { BottomNav } from "../components/BottomNav";
 import { FrostedIconButton } from "../components/FrostedIconButton";
 import { SyncStatus } from "../components/SyncStatus";
@@ -49,8 +50,14 @@ export function AppShell({
     setSelectedMonth,
     setSelectedYear,
   } = useAppStore();
-  const { assets, preference, setPreference } =
-    useDiaryBackgrounds(repository);
+  const backgroundSurface =
+    route.view === "shelf"
+      ? "home"
+      : calendarBackgroundSurface(route.year, route.month);
+  const { assets, preference, setPreference } = useDiaryBackgrounds(
+    repository,
+    backgroundSurface,
+  );
   const outbox = useLiveQuery(() => repository.listOutbox(), [repository], []);
   const serviceStatus = useSyncExternalStore(
     syncService === undefined
@@ -112,6 +119,7 @@ export function AppShell({
       />
       <FrostedIconButton
         className={styles.backgroundButton}
+        data-view={route.view}
         icon={Image}
         label="Choose background"
         onClick={() => {
@@ -138,14 +146,12 @@ export function AppShell({
           />
         )}
       </main>
-      <SyncStatus
-        onRetry={
-          syncService === undefined
-            ? undefined
-            : () => syncService.requestFlush()
-        }
-        status={syncStatus}
-      />
+      {syncService === undefined ? null : (
+        <SyncStatus
+          onRetry={() => syncService.requestFlush()}
+          status={syncStatus}
+        />
+      )}
       <BottomNav
         activeView={route.view}
         onAdd={() => {
@@ -184,6 +190,12 @@ export function AppShell({
                       setBackgroundPickerOpen(false);
                     });
                   }}
+                  onSolid={() => {
+                    void setPreference({ mode: "solid" }).then(() => {
+                      setBackgroundPickerOpen(false);
+                    });
+                  }}
+                  preference={preference}
                 />
               ) : null}
               <AnimatePresence>
