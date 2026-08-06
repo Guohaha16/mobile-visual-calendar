@@ -46,7 +46,11 @@ export function BackgroundPicker({
           )}
         </div>
       </header>
-      <div className={styles.grid}>
+      <div
+        aria-label="Diary background images"
+        className={styles.grid}
+        role="region"
+      >
         <button
           aria-label="Use exhibition white background"
           aria-pressed={preference.mode === "solid"}

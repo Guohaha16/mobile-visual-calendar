@@ -2,8 +2,10 @@
   display: grid;
   width: min(100%, 560px);
   max-height: min(76dvh, 680px);
+  min-height: 0;
   padding: 18px;
   gap: 16px;
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   color: var(--color-ink);
   background: rgb(255 255 255 / 78%);
@@ -50,11 +52,19 @@
 
 .grid {
   display: grid;
+  min-height: 0;
   padding-bottom: max(10px, env(safe-area-inset-bottom));
+  align-content: start;
+  grid-auto-rows: max-content;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
+  scrollbar-color: rgb(31 48 72 / 34%) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .asset {

@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Image } from "lucide-react";
+import { Paintbrush } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 
 import { toLocalDateKey } from "../domain/date";
@@ -120,7 +120,7 @@ export function AppShell({
       <FrostedIconButton
         className={styles.backgroundButton}
         data-view={route.view}
-        icon={Image}
+        icon={Paintbrush}
         label="Choose background"
         onClick={() => {
           setBackgroundPickerOpen(true);
